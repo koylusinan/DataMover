@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "debezium-postgres-source.schema.json",
+  "title": "Debezium Postgres Source Connector",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "name": { "type": "string", "minLength": 3, "maxLength": 128 },
+    "connector.class": { "const": "io.debezium.connector.postgresql.PostgresConnector" },
+    "tasks.max": { "oneOf": [ { "type": "integer", "minimum": 1 }, { "type": "string", "pattern": "^\\d+$" } ] },
+    "database.hostname": { "type": "string", "minLength": 1 },
+    "database.port": { "oneOf": [ { "type": "integer", "minimum": 1, "maximum": 65535 }, { "type": "string", "pattern": "^\\d{1,5}$" } ] },
+    "database.user": { "type": "string", "minLength": 1 },
+    "database.password": { "type": "string" },
+    "database.dbname": { "type": "string", "minLength": 1 },
+    "database.schema": { "type": "string", "minLength": 1 },
+    "database.server.name": { "type": "string", "minLength": 1 },
+    "database.server.id": { "oneOf": [ { "type": "integer", "minimum": 1 }, { "type": "string", "pattern": "^\\d+$" } ] },
+    "topic.prefix": { "type": "string", "minLength": 1 },
+    "snapshot.mode": { "type": "string", "enum": ["initial", "initial_only", "schema_only", "never"] },
+    "plugin.name": { "type": "string", "enum": ["pgoutput", "wal2json", "decoderbufs"] },
+    "publication.name": { "type": "string", "minLength": 1 },
+    "slot.name": { "type": "string", "minLength": 1 },
+    "slot.drop.on.stop": { "type": ["boolean", "string"] },
+    "decimal.handling.mode": { "type": "string", "enum": ["double", "string", "precise"] },
+    "time.precision.mode": { "type": "string", "enum": ["adaptive", "connect"] },
+    "tombstones.on.delete": { "type": ["boolean", "string"] },
+    "include.schema.changes": { "type": ["boolean", "string"] },
+    "key.converter": { "type": "string" },
+    "key.converter.schemas.enable": { "type": ["boolean", "string"] },
+    "value.converter": { "type": "string" },
+    "value.converter.schemas.enable": { "type": ["boolean", "string"] },
+    "errors.tolerance": { "type": "string", "enum": ["none", "all"] },
+    "errors.log.enable": { "type": ["boolean", "string"] },
+    "errors.log.include.messages": { "type": ["boolean", "string"] },
+    "errors.deadletterqueue.topic.name": { "type": "string" },
+    "errors.deadletterqueue.topic.replication.factor": {
+      "oneOf": [
+        { "type": "integer", "minimum": 1 },
+        { "type": "string", "pattern": "^\\d+$" }
+      ]
+    },
+    "errors.deadletterqueue.context.headers.enable": { "type": ["boolean", "string"] }
+  },
+  "required": [
+    "name",
+    "connector.class",
+    "tasks.max",
+    "database.hostname",
+    "database.port",
+    "database.user",
+    "database.password",
+    "database.dbname",
+    "topic.prefix",
+    "snapshot.mode",
+    "plugin.name",
+    "publication.name",
+    "slot.name"
+  ]
+}

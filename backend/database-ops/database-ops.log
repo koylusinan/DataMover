@@ -1,0 +1,7 @@
+
+> database-ops-backend@1.0.0 start
+> node server.js
+
+[dotenv@17.2.3] injecting env (9) from ../../.env -- tip: 🔑 add access controls to secrets: https://dotenvx.com/ops
+Database Operations Backend running on port 3001
+SIGTERM received, closing database connections...

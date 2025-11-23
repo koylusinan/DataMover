@@ -1,0 +1,168 @@
+version: '3.8'
+
+services:
+  # Kafka Broker - KRaft mode (without Zookeeper)
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    restart: always
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      # KRaft Configuration
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:29093'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+
+      # Listeners
+      KAFKA_LISTENERS: 'PLAINTEXT://kafka:29092,PLAINTEXT_HOST://0.0.0.0:9092,CONTROLLER://kafka:29093'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+
+      # Replication & Topics
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+
+      # JMX Metrics
+      KAFKA_JMX_PORT: 9093
+      KAFKA_JMX_HOSTNAME: localhost
+
+      # Storage
+      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    command: >
+      bash -c '
+      if [ ! -f /var/lib/kafka/data/.kraft_formatted ]; then
+        echo "Formatting Kafka storage directory...";
+        kafka-storage format -t MkU3OEVBNTcwNTJENDM2Qk -c /etc/kafka/server.properties;
+        touch /var/lib/kafka/data/.kraft_formatted;
+      fi;
+      /etc/confluent/docker/run
+      '
+
+  oracle-xe:
+    image: gvenzl/oracle-free:23-slim-faststart
+    container_name: oracle-xe
+    restart: always
+    environment:
+      ORACLE_PASSWORD: "oracle"
+    ports:
+      - "1521:1521"
+
+  # Kafka Connect with Debezium
+  kafka-connect:
+    image: quay.io/debezium/connect:3.0.2.Final
+    container_name: kafka-connect
+    restart: always
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8083:8083"
+      - "9097:9097"
+    environment:
+      # Basic Kafka Connect configuration
+      BOOTSTRAP_SERVERS: "kafka:29092"
+      GROUP_ID: "local-connect"
+      CONFIG_STORAGE_TOPIC: "connect-configs"
+      OFFSET_STORAGE_TOPIC: "connect-offsets"
+      STATUS_STORAGE_TOPIC: "connect-status"
+
+      # Replication factors (1 for local development)
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+
+      # REST API configuration
+      REST_ADVERTISED_HOST_NAME: "kafka-connect"
+      REST_LISTENERS: "http://0.0.0.0:8083"
+
+      # Converters
+      KEY_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+      VALUE_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+      KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+
+      # Plugin path
+      CONNECT_PLUGIN_PATH: "/kafka/connect,/kafka/connect/plugins"
+
+      # JMX and Prometheus metrics
+      JMXHOST: "localhost"
+      AUTO_INCLUDE_JMX_REPORTER: "false"
+      KAFKA_OPTS: |-
+        -javaagent:/kafka/connect/plugins/jmx-agent/jmx_prometheus_javaagent-0.17.2.jar=9097:/kafka/connect/plugins/jmx-agent/config.yml
+        -Ddebezium.metrics.unregistration.on.stop=true
+        -Ddebezium.metrics.scope=per-connector
+        -Ddebezium.metrics.mbean.domain=debezium-kafka-connect
+        -Dcom.sun.management.jmxremote
+        -Dcom.sun.management.jmxremote.authenticate=false
+        -Dcom.sun.management.jmxremote.ssl=false
+        -Djava.rmi.server.hostname=kafka-connect
+        -Djava.rmi.server.port=9097
+
+      # Memory settings (adjusted for local development)
+      KAFKA_HEAP_OPTS: "-Xms512M -Xmx2G"
+
+    volumes:
+      - ../kafka-connect-plugins:/kafka/connect/plugins
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # Prometheus for metrics
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: prometheus
+    restart: always
+    depends_on:
+      - kafka-connect
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+
+  # Kafka UI for management
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    restart: always
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-connect:
+        condition: service_started
+    ports:
+      - "8081:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: "local-cluster"
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "kafka:29092"
+      DYNAMIC_CONFIG_ENABLED: "true"
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: "local-connect"
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: "http://kafka-connect:8083"
+
+volumes:
+  kafka-data:
+  prometheus-data:

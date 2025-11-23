@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "debezium-sqlserver-source.schema.json",
+  "title": "Debezium SQL Server Source Connector",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "name": { "type": "string", "minLength": 3, "maxLength": 128 },
+    "connector.class": { "const": "io.debezium.connector.sqlserver.SqlServerConnector" },
+    "tasks.max": { "oneOf": [ { "type": "integer", "minimum": 1 }, { "type": "string", "pattern": "^\\d+$" } ] },
+    "database.hostname": { "type": "string", "minLength": 1 },
+    "database.port": { "oneOf": [ { "type": "integer", "minimum": 1, "maximum": 65535 }, { "type": "string", "pattern": "^\\d{1,5}$" } ] },
+    "database.user": { "type": "string", "minLength": 1 },
+    "database.password": { "type": "string", "minLength": 1 },
+    "database.names": { "type": "string", "minLength": 1 },
+    "table.include.list": { "type": "string" },
+    "database.history.kafka.bootstrap.servers": { "type": "string", "minLength": 1 },
+    "database.history.kafka.topic": { "type": "string", "minLength": 1 },
+    "snapshot.mode": { "type": "string", "enum": ["initial", "schema_only", "never"] },
+    "decimal.handling.mode": { "type": "string", "enum": ["double", "string", "precise"] },
+    "time.precision.mode": { "type": "string", "enum": ["adaptive", "connect"] }
+  },
+  "required": [
+    "name",
+    "connector.class",
+    "tasks.max",
+    "database.hostname",
+    "database.port",
+    "database.user",
+    "database.password",
+    "database.names",
+    "database.history.kafka.bootstrap.servers",
+    "database.history.kafka.topic",
+    "snapshot.mode"
+  ]
+}

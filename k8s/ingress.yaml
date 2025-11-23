@@ -1,0 +1,35 @@
+---
+# Ingress for all backend services
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cdcstream-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: cdcstream.local
+    http:
+      paths:
+      - path: /api/debezium
+        pathType: Prefix
+        backend:
+          service:
+            name: debezium-backend
+            port:
+              number: 5002
+      - path: /api/server
+        pathType: Prefix
+        backend:
+          service:
+            name: server-backend
+            port:
+              number: 5001
+      - path: /api/database-ops
+        pathType: Prefix
+        backend:
+          service:
+            name: database-ops-backend
+            port:
+              number: 3001

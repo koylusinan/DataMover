@@ -1,0 +1,17 @@
+# Dockerfile for monitoring service
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci --only=production
+
+# Copy backend code
+COPY backend/monitoring-service.js ./backend/
+COPY backend/start-monitoring.js ./backend/
+
+# Start monitoring service
+CMD ["node", "backend/start-monitoring.js"]

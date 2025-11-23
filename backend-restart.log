@@ -1,0 +1,45 @@
+✅ Using real Kafka Connect: http://127.0.0.1:8083
+{"level":30,"time":1763479985117,"pid":46847,"hostname":"ODEME-350.local","msg":"Server listening at http://0.0.0.0:5002"}
+{"level":30,"time":1763479985117,"pid":46847,"hostname":"ODEME-350.local","msg":"Debezium Backend listening on http://0.0.0.0:5002"}
+{"level":30,"time":1763480118038,"pid":46847,"hostname":"ODEME-350.local","reqId":"req-1","req":{"method":"POST","url":"/api/pipelines/21ce9a3a-a9d7-4a3a-a14b-eaf0d3bb9f53/deploy","hostname":"127.0.0.1:5002","remoteAddress":"127.0.0.1","remotePort":54827},"msg":"incoming request"}
+[DEBUG] Prepared config for oracle-xe-source: {
+  "database.hostname": "oracle-xe",
+  "database.port": "1521",
+  "database.dbname": "FREEPDB1",
+  "database.user": "DEBEZIUM",
+  "connector.class": "io.debezium.connector.oracle.OracleConnector"
+}
+[DEBUG] Prepared config for oracle-xe-sink: {
+  "connector.class": "io.debezium.connector.jdbc.JdbcSinkConnector"
+}
+{"level":30,"time":1763480118085,"pid":46847,"hostname":"ODEME-350.local","reqId":"req-1","connector":"oracle-xe-source","msg":"Deploying source connector"}
+{"level":50,"time":1763480118231,"pid":46847,"hostname":"ODEME-350.local","reqId":"req-1","err":{"type":"Error","message":"Failed to create connector: {\"error_code\":400,\"message\":\"Connector configuration is invalid and contains the following 1 error(s):\\nUnable to connect: Failed to resolve Oracle database version\\nYou can also find the above list of errors at the endpoint `/connector-plugins/{connectorType}/config/validate`\"}","stack":"Error: Failed to create connector: {\"error_code\":400,\"message\":\"Connector configuration is invalid and contains the following 1 error(s):\\nUnable to connect: Failed to resolve Oracle database version\\nYou can also find the above list of errors at the endpoint `/connector-plugins/{connectorType}/config/validate`\"}\n    at deployConnectorToKafka (file:///Users/skoyluhp/Downloads/datamove/cdcstream/backend/debezium-backend.js:205:15)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async Object.<anonymous> (file:///Users/skoyluhp/Downloads/datamove/cdcstream/backend/debezium-backend.js:289:34)"},"name":"oracle-xe-source","configFragment":"{\"name\":\"oracle-xe-source\",\"use_ssl\":\"false\",\"tasks.max\":\"1\",\"ssh_tunnel\":\"false\",\"database.url\":\"jdbc:oracle:thin:@oracle-xe:1521/FREEPDB1\",\"topic.prefix\":\"oracle-xe\",\"database.port\":\"1521\",\"database","msg":"Connector deployment failed"}
+{"level":30,"time":1763480118237,"pid":46847,"hostname":"ODEME-350.local","reqId":"req-1","res":{"statusCode":500},"responseTime":198.54683303833008,"msg":"request completed"}
+{"level":30,"time":1763480213851,"pid":46847,"hostname":"ODEME-350.local","reqId":"req-2","req":{"method":"POST","url":"/api/pipelines/21ce9a3a-a9d7-4a3a-a14b-eaf0d3bb9f53/deploy","hostname":"127.0.0.1:5002","remoteAddress":"127.0.0.1","remotePort":55481},"msg":"incoming request"}
+[DEBUG] Prepared config for oracle-xe-source: {
+  "database.hostname": "oracle-xe",
+  "database.port": "1521",
+  "database.dbname": "FREEPDB1",
+  "database.user": "DEBEZIUM",
+  "connector.class": "io.debezium.connector.oracle.OracleConnector"
+}
+[DEBUG] Prepared config for oracle-xe-sink: {
+  "connector.class": "io.debezium.connector.jdbc.JdbcSinkConnector"
+}
+{"level":30,"time":1763480213883,"pid":46847,"hostname":"ODEME-350.local","reqId":"req-2","connector":"oracle-xe-source","msg":"Deploying source connector"}
+{"level":50,"time":1763480214061,"pid":46847,"hostname":"ODEME-350.local","reqId":"req-2","err":{"type":"Error","message":"Failed to create connector: {\"error_code\":400,\"message\":\"Connector configuration is invalid and contains the following 1 error(s):\\nUnable to connect: Failed to resolve Oracle database version\\nYou can also find the above list of errors at the endpoint `/connector-plugins/{connectorType}/config/validate`\"}","stack":"Error: Failed to create connector: {\"error_code\":400,\"message\":\"Connector configuration is invalid and contains the following 1 error(s):\\nUnable to connect: Failed to resolve Oracle database version\\nYou can also find the above list of errors at the endpoint `/connector-plugins/{connectorType}/config/validate`\"}\n    at deployConnectorToKafka (file:///Users/skoyluhp/Downloads/datamove/cdcstream/backend/debezium-backend.js:205:15)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async Object.<anonymous> (file:///Users/skoyluhp/Downloads/datamove/cdcstream/backend/debezium-backend.js:289:34)"},"name":"oracle-xe-source","configFragment":"{\"name\":\"oracle-xe-source\",\"use_ssl\":\"false\",\"tasks.max\":\"1\",\"ssh_tunnel\":\"false\",\"database.url\":\"jdbc:oracle:thin:@oracle-xe:1521/FREEPDB1\",\"topic.prefix\":\"oracle-xe\",\"database.port\":\"1521\",\"database","msg":"Connector deployment failed"}
+{"level":30,"time":1763480214064,"pid":46847,"hostname":"ODEME-350.local","reqId":"req-2","res":{"statusCode":500},"responseTime":212.61608409881592,"msg":"request completed"}
+{"level":30,"time":1763480300589,"pid":46847,"hostname":"ODEME-350.local","reqId":"req-3","req":{"method":"POST","url":"/api/pipelines/21ce9a3a-a9d7-4a3a-a14b-eaf0d3bb9f53/deploy","hostname":"127.0.0.1:5002","remoteAddress":"127.0.0.1","remotePort":56034},"msg":"incoming request"}
+[DEBUG] Prepared config for oracle-xe-source: {
+  "database.hostname": "oracle-xe",
+  "database.port": "1521",
+  "database.dbname": "FREEPDB1",
+  "database.user": "DEBEZIUM",
+  "connector.class": "io.debezium.connector.oracle.OracleConnector"
+}
+[DEBUG] Prepared config for oracle-xe-sink: {
+  "connector.class": "io.debezium.connector.jdbc.JdbcSinkConnector"
+}
+{"level":30,"time":1763480300615,"pid":46847,"hostname":"ODEME-350.local","reqId":"req-3","connector":"oracle-xe-source","msg":"Deploying source connector"}
+{"level":50,"time":1763480300819,"pid":46847,"hostname":"ODEME-350.local","reqId":"req-3","err":{"type":"Error","message":"Failed to create connector: {\"error_code\":400,\"message\":\"Connector configuration is invalid and contains the following 1 error(s):\\nUnable to connect: Failed to resolve Oracle database version\\nYou can also find the above list of errors at the endpoint `/connector-plugins/{connectorType}/config/validate`\"}","stack":"Error: Failed to create connector: {\"error_code\":400,\"message\":\"Connector configuration is invalid and contains the following 1 error(s):\\nUnable to connect: Failed to resolve Oracle database version\\nYou can also find the above list of errors at the endpoint `/connector-plugins/{connectorType}/config/validate`\"}\n    at deployConnectorToKafka (file:///Users/skoyluhp/Downloads/datamove/cdcstream/backend/debezium-backend.js:205:15)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async Object.<anonymous> (file:///Users/skoyluhp/Downloads/datamove/cdcstream/backend/debezium-backend.js:289:34)"},"name":"oracle-xe-source","configFragment":"{\"name\":\"oracle-xe-source\",\"use_ssl\":\"false\",\"tasks.max\":\"1\",\"ssh_tunnel\":\"false\",\"database.url\":\"jdbc:oracle:thin:@oracle-xe:1521/FREEPDB1\",\"topic.prefix\":\"oracle-xe\",\"database.port\":\"1521\",\"database","msg":"Connector deployment failed"}
+{"level":30,"time":1763480300821,"pid":46847,"hostname":"ODEME-350.local","reqId":"req-3","res":{"statusCode":500},"responseTime":231.091166973114,"msg":"request completed"}

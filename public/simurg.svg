@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="bodyGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b82f6;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#8b5cf6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#ec4899;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="wingGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#06b6d4;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#3b82f6;stop-opacity:1" />
+    </linearGradient>
+    <radialGradient id="glowGradient">
+      <stop offset="0%" style="stop-color:#fbbf24;stop-opacity:0.8" />
+      <stop offset="100%" style="stop-color:#f59e0b;stop-opacity:0" />
+    </radialGradient>
+  </defs>
+
+  <!-- Glow effect -->
+  <circle cx="50" cy="50" r="45" fill="url(#glowGradient)" opacity="0.3"/>
+
+  <!-- Body -->
+  <ellipse cx="50" cy="55" rx="12" ry="18" fill="url(#bodyGradient)"/>
+
+  <!-- Head -->
+  <circle cx="50" cy="35" r="8" fill="url(#bodyGradient)"/>
+
+  <!-- Beak -->
+  <path d="M 50 32 L 48 28 L 52 28 Z" fill="#f59e0b"/>
+
+  <!-- Eye -->
+  <circle cx="52" cy="34" r="1.5" fill="#fbbf24"/>
+  <circle cx="52.5" cy="33.5" r="0.6" fill="white"/>
+
+  <!-- Crown feathers -->
+  <path d="M 45 30 Q 43 25 44 22" stroke="#ec4899" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <path d="M 48 28 Q 47 23 48 20" stroke="#a855f7" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <path d="M 52 28 Q 53 23 52 20" stroke="#8b5cf6" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <path d="M 55 30 Q 57 25 56 22" stroke="#3b82f6" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+
+  <!-- Left Wing (spread) -->
+  <g opacity="0.95">
+    <!-- Main wing -->
+    <path d="M 38 50 Q 15 40 10 35 Q 8 45 12 50 Q 20 55 38 58 Z"
+          fill="url(#wingGradient)" stroke="#1e40af" stroke-width="0.5"/>
+
+    <!-- Wing feathers -->
+    <path d="M 30 45 Q 18 42 14 38" stroke="#06b6d4" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <path d="M 28 50 Q 16 48 12 45" stroke="#0ea5e9" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <path d="M 30 55 Q 18 54 14 52" stroke="#3b82f6" stroke-width="2" fill="none" stroke-linecap="round"/>
+  </g>
+
+  <!-- Right Wing (spread) -->
+  <g opacity="0.95">
+    <!-- Main wing -->
+    <path d="M 62 50 Q 85 40 90 35 Q 92 45 88 50 Q 80 55 62 58 Z"
+          fill="url(#wingGradient)" stroke="#1e40af" stroke-width="0.5"/>
+
+    <!-- Wing feathers -->
+    <path d="M 70 45 Q 82 42 86 38" stroke="#06b6d4" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <path d="M 72 50 Q 84 48 88 45" stroke="#0ea5e9" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <path d="M 70 55 Q 82 54 86 52" stroke="#3b82f6" stroke-width="2" fill="none" stroke-linecap="round"/>
+  </g>
+
+  <!-- Tail feathers -->
+  <g>
+    <path d="M 50 73 Q 48 85 46 90" stroke="#ec4899" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+    <path d="M 50 73 Q 50 88 50 93" stroke="#a855f7" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+    <path d="M 50 73 Q 52 85 54 90" stroke="#8b5cf6" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+
+    <!-- Decorative tail tips -->
+    <circle cx="46" cy="90" r="2" fill="#ec4899" opacity="0.8"/>
+    <circle cx="50" cy="93" r="2" fill="#a855f7" opacity="0.8"/>
+    <circle cx="54" cy="90" r="2" fill="#8b5cf6" opacity="0.8"/>
+  </g>
+
+  <!-- Legs -->
+  <line x1="48" y1="72" x2="46" y2="78" stroke="#f59e0b" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="52" y1="72" x2="54" y2="78" stroke="#f59e0b" stroke-width="1.5" stroke-linecap="round"/>
+
+  <!-- Energy streams (data flow representation) -->
+  <g opacity="0.4">
+    <path d="M 20 60 Q 35 58 50 55" stroke="#06b6d4" stroke-width="1" fill="none" stroke-dasharray="2,2">
+      <animate attributeName="stroke-dashoffset" from="0" to="20" dur="2s" repeatCount="indefinite"/>
+    </path>
+    <path d="M 80 60 Q 65 58 50 55" stroke="#06b6d4" stroke-width="1" fill="none" stroke-dasharray="2,2">
+      <animate attributeName="stroke-dashoffset" from="0" to="20" dur="2s" repeatCount="indefinite"/>
+    </path>
+  </g>
+
+  <!-- Wing animation -->
+  <animateTransform
+    attributeName="transform"
+    attributeType="XML"
+    type="rotate"
+    from="0 50 50"
+    to="3 50 50"
+    dur="0.8s"
+    repeatCount="indefinite"
+    additive="sum"/>
+  <animateTransform
+    attributeName="transform"
+    attributeType="XML"
+    type="rotate"
+    from="3 50 50"
+    to="0 50 50"
+    dur="0.8s"
+    begin="0.8s"
+    repeatCount="indefinite"
+    additive="sum"/>
+</svg>

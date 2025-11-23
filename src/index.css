@@ -1,0 +1,105 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+@layer components {
+  .sidebar-item {
+    @apply flex items-center gap-3 px-4 py-3 text-gray-700 hover:bg-gray-100 cursor-pointer transition-colors;
+  }
+
+  .sidebar-item.active {
+    @apply bg-gray-200 text-gray-900 font-medium;
+  }
+
+  .wizard-step {
+    @apply flex flex-col items-center;
+  }
+
+  .step-circle {
+    @apply w-8 h-8 rounded-full flex items-center justify-center font-semibold text-sm;
+  }
+
+  .step-circle.active {
+    @apply bg-blue-600 text-white;
+  }
+
+  .step-circle.completed {
+    @apply bg-green-600 text-white;
+  }
+
+  .step-circle.pending {
+    @apply bg-gray-300 text-gray-600;
+  }
+}
+
+@keyframes rotate-orbit {
+  0% { transform: rotate(0deg) translateX(320px) rotate(0deg); }
+  100% { transform: rotate(360deg) translateX(320px) rotate(-360deg); }
+}
+
+@keyframes fade-pulse {
+  0%, 100% { opacity: 0.15; }
+  50% { opacity: 0.4; }
+}
+
+@keyframes spin-slow {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes spin-reverse {
+  0% { transform: rotate(360deg); }
+  100% { transform: rotate(0deg); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes flow-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.8; }
+}
+
+@keyframes flow-dot {
+  0% { transform: translate(-50%, -50%) translateX(0px); opacity: 0; }
+  20% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { transform: translate(-50%, -50%) translateX(-220px); opacity: 0; }
+}
+
+.animate-orbit {
+  animation: rotate-orbit 50s linear infinite, fade-pulse 12s ease-in-out infinite;
+}
+
+.animate-spin-slow {
+  animation: spin-slow 8s linear infinite;
+}
+
+.animate-spin-reverse {
+  animation: spin-reverse 12s linear infinite;
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.animate-flow-pulse {
+  animation: flow-pulse 2s ease-in-out infinite;
+}
+
+.animate-flow-dot {
+  animation: flow-dot 4s ease-in-out infinite;
+}

@@ -1,0 +1,81 @@
+---
+# JMX Exporter Configuration for Kafka Connect
+# This configuration exposes Kafka Connect JMX metrics in Prometheus format
+
+# Lowercase metric names
+lowercaseOutputName: true
+lowercaseOutputLabelNames: true
+
+# Whitelist patterns for metrics to expose
+whitelistObjectNames:
+  - "kafka.connect:type=connect-worker-metrics"
+  - "kafka.connect:type=connect-worker-rebalance-metrics"
+  - "kafka.connect:type=connect-metrics,client-id=*"
+  - "kafka.connect:type=connector-metrics,connector=*"
+  - "kafka.connect:type=connector-task-metrics,connector=*,task=*"
+  - "kafka.connect:type=task-error-metrics,connector=*,task=*"
+  - "kafka.connect:type=source-task-metrics,connector=*,task=*"
+  - "kafka.connect:type=sink-task-metrics,connector=*,task=*"
+  - "kafka.consumer:type=*,client-id=*"
+  - "kafka.producer:type=*,client-id=*"
+  - "debezium.metrics:type=connector-metrics,context=*,server=*"
+
+# Rules to transform JMX metrics to Prometheus format
+rules:
+  # Kafka Connect Worker metrics
+  - pattern: 'kafka.connect<type=connect-worker-metrics>([^:]+):'
+    name: kafka_connect_worker_$1
+    type: GAUGE
+
+  # Kafka Connect Connector metrics
+  - pattern: 'kafka.connect<type=connector-metrics, connector=([^,]+)><>([^:]+)'
+    name: kafka_connect_connector_$2
+    labels:
+      connector: "$1"
+    type: GAUGE
+
+  # Kafka Connect Task metrics
+  - pattern: 'kafka.connect<type=([^,]+), connector=([^,]+), task=([^>]+)><>([^:]+)'
+    name: kafka_connect_$1_$4
+    labels:
+      connector: "$2"
+      task: "$3"
+    type: GAUGE
+
+  # Kafka Connect Source Task metrics
+  - pattern: 'kafka.connect<type=source-task-metrics, connector=([^,]+), task=([^>]+)><>([^:]+)'
+    name: kafka_connect_source_task_$3
+    labels:
+      connector: "$1"
+      task: "$2"
+    type: GAUGE
+
+  # Kafka Connect Sink Task metrics
+  - pattern: 'kafka.connect<type=sink-task-metrics, connector=([^,]+), task=([^>]+)><>([^:]+)'
+    name: kafka_connect_sink_task_$3
+    labels:
+      connector: "$1"
+      task: "$2"
+    type: GAUGE
+
+  # Debezium metrics
+  - pattern: 'debezium.metrics<type=connector-metrics, context=([^,]+), server=([^>]+)><>([^:]+)'
+    name: debezium_metrics_$3
+    labels:
+      context: "$1"
+      server: "$2"
+    type: GAUGE
+
+  # Kafka Consumer metrics
+  - pattern: 'kafka.consumer<type=([^,]+), client-id=([^>]+)><>([^:]+)'
+    name: kafka_consumer_$1_$3
+    labels:
+      client_id: "$2"
+    type: GAUGE
+
+  # Kafka Producer metrics
+  - pattern: 'kafka.producer<type=([^,]+), client-id=([^>]+)><>([^:]+)'
+    name: kafka_producer_$1_$3
+    labels:
+      client_id: "$2"
+    type: GAUGE

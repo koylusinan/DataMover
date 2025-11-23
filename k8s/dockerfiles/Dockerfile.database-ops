@@ -1,0 +1,21 @@
+# Dockerfile for backend/database-ops/server.js (Port 3001)
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy package files from database-ops
+COPY backend/database-ops/package*.json ./backend/database-ops/
+
+# Install dependencies
+WORKDIR /app/backend/database-ops
+RUN npm ci --only=production
+
+# Copy database-ops code
+WORKDIR /app
+COPY backend/database-ops ./backend/database-ops/
+
+# Expose port
+EXPOSE 3001
+
+# Start database-ops server
+CMD ["node", "backend/database-ops/server.js"]

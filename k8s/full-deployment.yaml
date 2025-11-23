@@ -1,0 +1,209 @@
+---
+# ConfigMap for all backend services
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+data:
+  KAFKA_CONNECT_URL: "http://host.minikube.internal:8083"
+  KAFKA_BROKER_URL: "host.minikube.internal:9092"
+  PROMETHEUS_URL: "http://host.minikube.internal:9090"
+  SUPABASE_DB_HOST: "host.minikube.internal"
+  SUPABASE_DB_PORT: "54322"
+  SUPABASE_DB_NAME: "postgres"
+  SUPABASE_DB_USER: "postgres"
+  SUPABASE_DB_PASSWORD: "postgres"
+  DEBEZIUM_BACKEND_PORT: "5002"
+  BACKEND_PORT: "5001"
+  DATABASE_OPS_PORT: "3001"
+  K8S_HOST_GATEWAY: "host.minikube.internal"
+
+---
+# Monitoring Service Deployment (1 replica - SINGLETON!)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: monitoring-service
+  labels:
+    app: monitoring-service
+spec:
+  replicas: 1  # CRITICAL: Only 1 instance to avoid duplicate alerts!
+  selector:
+    matchLabels:
+      app: monitoring-service
+  template:
+    metadata:
+      labels:
+        app: monitoring-service
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+      - name: monitoring
+        image: cdcstream-debezium:latest
+        imagePullPolicy: Never
+        command: ["node", "backend/start-monitoring.js"]
+        envFrom:
+        - configMapRef:
+            name: backend-config
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "50m"
+          limits:
+            memory: "2Gi"
+            cpu: "500m"
+
+---
+# Debezium Backend Deployment (1 replica with hostNetwork)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: debezium-backend
+  labels:
+    app: debezium-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: debezium-backend
+  template:
+    metadata:
+      labels:
+        app: debezium-backend
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+      - name: debezium-backend
+        image: cdcstream-debezium:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 5002
+        envFrom:
+        - configMapRef:
+            name: backend-config
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "100m"
+          limits:
+            memory: "2Gi"
+            cpu: "500m"
+
+---
+# Server Backend Deployment (1 replica with hostNetwork)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: server-backend
+  labels:
+    app: server-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: server-backend
+  template:
+    metadata:
+      labels:
+        app: server-backend
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+      - name: server-backend
+        image: cdcstream-server:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 5001
+        envFrom:
+        - configMapRef:
+            name: backend-config
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "100m"
+          limits:
+            memory: "2Gi"
+            cpu: "500m"
+
+---
+# Database Ops Backend Deployment (1 replica with hostNetwork)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: database-ops-backend
+  labels:
+    app: database-ops-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: database-ops-backend
+  template:
+    metadata:
+      labels:
+        app: database-ops-backend
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+      - name: database-ops
+        image: cdcstream-database-ops:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 3001
+        envFrom:
+        - configMapRef:
+            name: backend-config
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "100m"
+          limits:
+            memory: "2Gi"
+            cpu: "500m"
+
+---
+# Services for each backend
+apiVersion: v1
+kind: Service
+metadata:
+  name: debezium-backend
+spec:
+  selector:
+    app: debezium-backend
+  ports:
+  - protocol: TCP
+    port: 5002
+    targetPort: 5002
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: server-backend
+spec:
+  selector:
+    app: server-backend
+  ports:
+  - protocol: TCP
+    port: 5001
+    targetPort: 5001
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: database-ops-backend
+spec:
+  selector:
+    app: database-ops-backend
+  ports:
+  - protocol: TCP
+    port: 3001
+    targetPort: 3001
+  type: ClusterIP

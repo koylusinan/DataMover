@@ -1,0 +1,21 @@
+# Dockerfile for backend/debezium-backend.js (Port 5002)
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci --only=production
+
+# Copy backend code
+COPY backend/debezium-backend.js ./backend/
+COPY backend/monitoring-service.js ./backend/
+COPY backend/start-monitoring.js ./backend/
+
+# Expose port
+EXPOSE 5002
+
+# Start debezium backend
+CMD ["node", "backend/debezium-backend.js"]

@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "debezium-oracle-source.schema.json",
+  "title": "Debezium Oracle Source Connector",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128
+    },
+    "connector.class": {
+      "const": "io.debezium.connector.oracle.OracleConnector"
+    },
+    "tasks.max": {
+      "oneOf": [
+        { "type": "integer", "minimum": 1 },
+        { "type": "string", "pattern": "^\\d+$" }
+      ]
+    },
+    "database.hostname": { "type": "string", "minLength": 1 },
+    "database.port": {
+      "oneOf": [
+        { "type": "integer", "minimum": 1, "maximum": 65535 },
+        { "type": "string", "pattern": "^\\d{1,5}$" }
+      ]
+    },
+    "database.user": { "type": "string", "minLength": 1 },
+    "database.password": { "type": "string" },
+    "database.dbname": { "type": "string", "minLength": 1 },
+    "database.server.name": { "type": "string", "minLength": 1 },
+    "database.schema": { "type": "string", "minLength": 1 },
+    "database.out.server.name": { "type": "string" },
+    "topic.prefix": { "type": "string", "minLength": 1 },
+    "snapshot.mode": {
+      "type": "string",
+      "enum": ["initial", "initial_only", "schema_only", "never"]
+    },
+    "log.mining.strategy": {
+      "type": "string",
+      "enum": ["online_catalog", "redo_log_catalog"]
+    },
+    "log.mining.continuous.mine": { "type": ["string", "boolean"] },
+    "log.mining.sleep.time.default": { "type": ["string", "number"] },
+    "snapshot.lock.timeout.ms": { "type": ["string", "number"] },
+    "snapshot.fetch.size": { "type": ["string", "number"] },
+    "decimal.handling.mode": {
+      "type": "string",
+      "enum": ["double", "precise", "string"]
+    },
+    "time.precision.mode": {
+      "type": "string",
+      "enum": ["adaptive", "adaptive_time_microseconds", "connect"]
+    },
+    "tombstones.on.delete": { "type": ["boolean", "string"] },
+    "include.schema.changes": { "type": ["boolean", "string"] },
+    "use_ssl": { "type": "boolean" },
+    "ssh_tunnel": { "type": "boolean" }
+  },
+  "required": [
+    "name",
+    "connector.class",
+    "tasks.max",
+    "database.hostname",
+    "database.port",
+    "database.user",
+    "database.password",
+    "database.dbname",
+    "database.server.name",
+    "topic.prefix",
+    "snapshot.mode",
+    "log.mining.strategy"
+  ]
+}

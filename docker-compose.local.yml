@@ -1,0 +1,18 @@
+# ⚠️ DEPRECATED: This file is deprecated
+# 
+# Please use: prometheus/docker-compose.local.yml
+# 
+# All Kafka, Prometheus, and related services have been moved to the prometheus/ directory
+# for better organization and modular management.
+#
+# To start services:
+#   cd prometheus
+#   ./start-local.sh
+#
+# Or directly:
+#   cd prometheus
+#   docker-compose -f docker-compose.local.yml up -d
+#
+
+version: '3.8'
+services: {}

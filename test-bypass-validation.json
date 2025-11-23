@@ -1,0 +1,24 @@
+{
+  "name": "oracle-xe-source-bypass",
+  "config": {
+    "connector.class": "io.debezium.connector.oracle.OracleConnector",
+    "tasks.max": "1",
+    "database.hostname": "oracle-xe",
+    "database.port": "1521",
+    "database.user": "DEBEZIUM",
+    "database.password": "dbz",
+    "database.dbname": "FREEPDB1",
+    "topic.prefix": "oracle-xe-test",
+    "database.connection.adapter": "logminer",
+    "database.pdb.name": "FREEPDB1",
+    "schema.history.internal.kafka.bootstrap.servers": "kafka:29092",
+    "schema.history.internal.kafka.topic": "oracle-test-schema-history",
+    "table.include.list": ".*",
+    "snapshot.mode": "initial",
+    "database.oracle.version": "23.0.0.0",
+    "schema.history.internal.store.only.captured.tables.ddl": "true",
+    "errors.tolerance": "all",
+    "errors.deadletterqueue.topic.name": "oracle-test-dlq",
+    "errors.deadletterqueue.topic.replication.factor": "1"
+  }
+}

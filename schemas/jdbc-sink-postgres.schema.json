@@ -1,0 +1,118 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "jdbc-sink-postgres.schema.json",
+  "title": "Kafka Connect JDBC Sink (PostgreSQL)",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128
+    },
+    "connector.class": {
+      "const": "io.debezium.connector.jdbc.JdbcSinkConnector"
+    },
+    "tasks.max": {
+      "oneOf": [
+        { "type": "integer", "minimum": 1 },
+        { "type": "string", "pattern": "^\\d+$" }
+      ]
+    },
+    "topics": { "type": "string" },
+    "connection.url": {
+      "type": "string",
+      "pattern": "^jdbc:postgresql://.+$"
+    },
+    "connection.username": { "type": "string", "minLength": 1 },
+    "connection.user": { "type": "string", "minLength": 1 },
+    "connection.password": { "type": "string", "minLength": 1 },
+    "connection.pool.size": {
+      "oneOf": [
+        { "type": "integer", "minimum": 1, "maximum": 50 },
+        { "type": "string", "pattern": "^\\d+$" }
+      ]
+    },
+    "ssl.mode": {
+      "type": "string",
+      "enum": ["disable", "require", "verify-ca", "verify-full"]
+    },
+    "table.name.format": { "type": "string" },
+    "schema.evolution": {
+      "type": "string",
+      "enum": ["none", "basic", "advanced"]
+    },
+    "auto.create": { "type": ["boolean", "string"] },
+    "auto.evolve": { "type": ["boolean", "string"] },
+    "insert.mode": {
+      "type": "string",
+      "enum": ["insert", "upsert", "update"]
+    },
+    "primary.key.mode": {
+      "type": "string",
+      "enum": ["none", "record_key", "record_value", "kafka"]
+    },
+    "primary.key.fields": { "type": "string" },
+    "pk.mode": {
+      "type": "string",
+      "enum": ["none", "record_key", "record_value", "kafka"]
+    },
+    "pk.fields": { "type": "string" },
+    "delete.enabled": { "type": ["boolean", "string"] },
+    "tombstones.on.delete": { "type": ["boolean", "string"] },
+    "key.converter": { "type": "string" },
+    "value.converter": { "type": "string" },
+    "key.converter.schemas.enable": { "type": ["boolean", "string"] },
+    "value.converter.schemas.enable": { "type": ["boolean", "string"] },
+    "transforms": { "type": "string" },
+    "debezium.format.value.schemas.enable": { "type": ["boolean", "string"] },
+    "errors.tolerance": {
+      "type": "string",
+      "enum": ["none", "all"]
+    },
+    "errors.deadletterqueue.topic.name": { "type": "string" },
+    "errors.deadletterqueue.topic.replication.factor": {
+      "oneOf": [
+        { "type": "integer", "minimum": 1 },
+        { "type": "string", "pattern": "^\\d+$" }
+      ]
+    },
+    "errors.deadletterqueue.context.headers.enable": { "type": ["boolean", "string"] },
+    "errors.log.enable": { "type": ["boolean", "string"] },
+    "errors.log.include.messages": { "type": ["boolean", "string"] },
+    "batch.size": {
+      "oneOf": [
+        { "type": "integer", "minimum": 1, "maximum": 5000 },
+        { "type": "string", "pattern": "^\\d+$" }
+      ]
+    },
+    "max.retries": {
+      "oneOf": [
+        { "type": "integer", "minimum": 0, "maximum": 100 },
+        { "type": "string", "pattern": "^\\d+$" }
+      ]
+    },
+    "retry.backoff.ms": {
+      "oneOf": [
+        { "type": "integer", "minimum": 0 },
+        { "type": "string", "pattern": "^\\d+$" }
+      ]
+    },
+    "sanitize_names": { "type": ["boolean", "string"] },
+    "consumer.override.auto.offset.reset": {
+      "type": "string",
+      "enum": ["earliest", "latest", "none"]
+    },
+    "consumer.override.bootstrap.servers": { "type": "string" },
+    "producer.override.bootstrap.servers": { "type": "string" }
+  },
+  "required": [
+    "name",
+    "connector.class",
+    "tasks.max",
+    "topics",
+    "connection.url",
+    "connection.password",
+    "insert.mode"
+  ]
+}

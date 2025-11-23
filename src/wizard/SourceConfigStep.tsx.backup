@@ -1,0 +1,492 @@
+import { useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Eye, EyeOff, Loader2, Info, ChevronDown, AlertTriangle } from 'lucide-react';
+import { CodeBlockWithCopy } from '../components/ui/CodeBlockWithCopy';
+import { useToast } from '../components/ui/Toast';
+import { supabase } from '../lib/supabase';
+
+interface SourceConfigStepProps {
+  sourceType: string;
+}
+
+export function SourceConfigStep({ sourceType }: SourceConfigStepProps) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { showToast } = useToast();
+  const [showPassword, setShowPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [formData, setFormData] = useState({
+    name: '',
+    host: '',
+    port: sourceType === 'oracle' ? 1521 : sourceType === 'postgres' ? 5432 : 1433,
+    database_name: '',
+    username: '',
+    password: '',
+    ssl: false,
+  });
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value, type, checked } = e.target;
+    setFormData((prev) => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : name === 'port' ? parseInt(value) || 0 : value,
+    }));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!formData.name.trim()) {
+      showToast('error', 'Pipeline name is required');
+      return;
+    }
+
+    if (!formData.host.trim()) {
+      showToast('error', 'Host is required');
+      return;
+    }
+
+    if (!formData.username.trim()) {
+      showToast('error', 'Username is required');
+      return;
+    }
+
+    if (!formData.password.trim()) {
+      showToast('error', 'Password is required');
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+
+      const pipelineData = {
+        user_id: user?.id || '00000000-0000-0000-0000-000000000000',
+        name: formData.name,
+        source_type: sourceType,
+        source_config: {
+          host: formData.host,
+          port: formData.port,
+          database_name: formData.database_name,
+          username: formData.username,
+          ssl: formData.ssl,
+        },
+        status: 'draft',
+      };
+
+      const { data: pipeline, error } = await supabase
+        .from('pipelines')
+        .insert(pipelineData)
+        .select()
+        .maybeSingle();
+
+      if (error) {
+        showToast('error', 'Failed to create pipeline', error.message);
+        return;
+      }
+
+      if (!pipeline) {
+        showToast('error', 'Failed to create pipeline');
+        return;
+      }
+
+      showToast('success', 'Source configuration saved');
+      navigate('/pipelines/new/objects', { state: { ...location.state, pipelineId: pipeline.id } });
+    } catch (error) {
+      showToast('error', 'An error occurred', 'Please try again');
+      console.error(error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const getSourceDisplayName = () => {
+    const names: Record<string, string> = {
+      oracle: 'Oracle',
+      postgres: 'PostgreSQL',
+      sqlserver: 'SQL Server',
+    };
+    return names[sourceType] || sourceType;
+  };
+
+  return (
+    <div className="flex h-full">
+      <div className="flex-1 p-8 overflow-y-auto">
+        <button
+          onClick={() => navigate(-1)}
+          className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium text-sm mb-6"
+        >
+          ← Back
+        </button>
+
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
+          Configure your {getSourceDisplayName()} Source
+        </h2>
+        <p className="text-gray-600 dark:text-gray-400 mb-6">
+          Follow the guide on the right to set up your Source
+        </p>
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-600 dark:text-gray-400">Copy from</label>
+              <select className="px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded text-sm text-gray-900 dark:text-gray-100">
+                <option>Existing Sources</option>
+              </select>
+            </div>
+            <span className="text-xs text-gray-500 dark:text-gray-400">Draft saved</span>
+          </div>
+
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded p-3 flex items-start gap-3 border-l-4 border-l-blue-500">
+            <Info className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm text-blue-900 dark:text-blue-100">
+                There are <strong>Prerequisites</strong> that you must ensure to set up this Source for your Pipeline.{' '}
+                <a href="#" className="text-blue-600 dark:text-blue-400 hover:underline font-medium">
+                  Learn more →
+                </a>
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Pipeline Name <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              name="name"
+              value={formData.name}
+              onChange={handleChange}
+              required
+              placeholder={`${getSourceDisplayName()} Pipeline`}
+              className="w-full px-4 py-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-gray-900 dark:text-gray-100"
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">A unique name for your Pipeline</p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Database Host <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                name="host"
+                value={formData.host}
+                onChange={handleChange}
+                required
+                placeholder="10.123.1.001 or db.example.com"
+                className="w-full px-4 py-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-gray-900 dark:text-gray-100"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Database Port <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="number"
+                name="port"
+                value={formData.port}
+                onChange={handleChange}
+                required
+                className="w-full px-4 py-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-gray-900 dark:text-gray-100"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Database User <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                name="username"
+                value={formData.username}
+                onChange={handleChange}
+                required
+                placeholder="dbuser"
+                className="w-full px-4 py-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-gray-900 dark:text-gray-100"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Database Password <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  name="password"
+                  value={formData.password}
+                  onChange={handleChange}
+                  required
+                  placeholder="Enter database password"
+                  className="w-full px-4 py-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all pr-10 text-gray-900 dark:text-gray-100"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+                >
+                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              {sourceType === 'oracle' ? 'Service Name' : 'Database Name'} <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              name="database_name"
+              value={formData.database_name}
+              onChange={handleChange}
+              required
+              placeholder={sourceType === 'oracle' ? 'ORCLPDB1' : 'mydb'}
+              className="w-full px-4 py-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-gray-900 dark:text-gray-100"
+            />
+          </div>
+
+          <div>
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                name="ssl"
+                checked={formData.ssl}
+                onChange={handleChange}
+                className="w-4 h-4"
+              />
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Use SSL Connection</span>
+            </label>
+          </div>
+
+          <div className="flex gap-4 pt-6 border-t border-gray-200 dark:border-gray-700">
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              {isLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+              {isLoading ? 'Saving...' : 'Save & Continue'}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <div className="w-[600px] bg-gray-50 dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 overflow-y-auto p-6">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-6">Prerequisites</h3>
+
+        {sourceType === 'oracle' && (
+          <div className="space-y-6">
+            <div className="space-y-4">
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Oracle database version is 11 or above. You can retrieve the version with:
+              </p>
+              <CodeBlockWithCopy
+                code="SELECT BANNER_FULL FROM V$VERSION WHERE BANNER_FULL LIKE 'Oracle Database%';"
+                title="Check Oracle Version"
+              />
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-4">
+                SELECT permissions are granted to the database user.
+              </p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                <strong>Note:</strong> Redo Log-based replication is enabled when the ingestion mode is RedoLog and the database user has SYSDBA privileges.
+              </p>
+            </div>
+
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+              <h4 className="font-medium text-gray-900 dark:text-gray-100 mb-3">Step 1: Create Database User and Grant Privileges</h4>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                Connect as DBA using SQL Developer or any other SQL client tool and create a user with necessary permissions:
+              </p>
+              <CodeBlockWithCopy
+                code={`-- Create a Database User
+CREATE USER <username> IDENTIFIED BY <password>;
+
+-- Grant Privileges to the Database User
+GRANT SELECT ANY DICTIONARY to <username>;
+GRANT CREATE SESSION, ALTER SESSION TO <username>;
+GRANT SELECT ON ALL_VIEWS TO <username>;
+GRANT SELECT ON <schema_name>.<table_name> TO <username>;
+
+-- Grant Privileges on Metadata tables
+GRANT SELECT ON DATABASE_PROPERTIES TO <username>;
+GRANT SELECT ON ALL_OBJECTS TO <username>;
+GRANT SELECT ON ALL_TABLES TO <username>;
+GRANT SELECT ON ALL_TAB_COLUMNS TO <username>;
+GRANT SELECT ON ALL_CONSTRAINTS TO <username>;
+GRANT SELECT ON ALL_CONS_COLUMNS TO <username>;
+
+-- Grant Permission to run LogMiner
+GRANT LOGMINING TO <username>;
+GRANT SELECT ON SYS.V_$DATABASE TO <username>;
+GRANT SELECT ON SYS.V_$LOG TO <username>;
+GRANT SELECT ON SYS.V_$LOGFILE TO <username>;
+GRANT SELECT ON SYS.V_$ARCHIVED_LOG TO <username>;
+GRANT SELECT ON SYS.V_$LOGMNR_CONTENTS TO <username>;
+GRANT SELECT ON SYS.V_$ARCHIVE_DEST_STATUS TO <username>;
+GRANT EXECUTE ON SYS.DBMS_LOGMNR TO <username>;
+GRANT EXECUTE ON SYS.DBMS_LOGMNR_D TO <username>;`}
+                title="Create User & Grant Privileges"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                Replace placeholder values (e.g., &lt;username&gt; with hevo)
+              </p>
+            </div>
+
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+              <h4 className="font-medium text-gray-900 dark:text-gray-100 mb-3">Step 2: Set up Redo Logs for Replication</h4>
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">1. Enable Archive Log</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                Check if archive log is enabled:
+              </p>
+              <CodeBlockWithCopy
+                code="SELECT LOG_MODE FROM V$DATABASE;"
+                title="Check Archive Log Mode"
+              />
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-3 mb-2">
+                Returns ARCHIVELOG (enabled) or NOARCHIVELOG (disabled). If disabled, enable it:
+              </p>
+              <CodeBlockWithCopy
+                code={`SHUTDOWN IMMEDIATE;
+STARTUP MOUNT;
+ALTER DATABASE ARCHIVELOG;
+ALTER DATABASE OPEN;`}
+                title="Enable Archive Log"
+              />
+            </div>
+
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+              <h4 className="font-medium text-gray-900 dark:text-gray-100 mb-3">2. Configure Retention Policy</h4>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                Connect to RMAN and check retention policy:
+              </p>
+              <CodeBlockWithCopy
+                code={`RMAN
+CONNECT TARGET <database_username>;
+
+SELECT VALUE FROM V$RMAN_CONFIGURATION WHERE NAME = 'RETENTION POLICY';`}
+                title="Check Retention Policy"
+              />
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-3 mb-3">
+                If less than 3 days, configure to at least 3 days (72 hours):
+              </p>
+              <CodeBlockWithCopy
+                code="CONFIGURE RETENTION POLICY TO RECOVERY WINDOW OF 3 DAYS;"
+                title="Set Retention Policy"
+              />
+            </div>
+
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+              <h4 className="font-medium text-gray-900 dark:text-gray-100 mb-3">3. Enable Supplemental Logging</h4>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                Check if supplemental logging is enabled:
+              </p>
+              <CodeBlockWithCopy
+                code='SELECT SUPPLEMENTAL_LOG_DATA_MIN FROM "V$DATABASE";'
+                title="Check Supplemental Logging"
+              />
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-3 mb-2">
+                Returns YES (enabled) or NO (disabled). If NO, enable at database level:
+              </p>
+              <CodeBlockWithCopy
+                code="ALTER DATABASE ADD SUPPLEMENTAL LOG DATA (ALL) COLUMNS;"
+                title="Enable Supplemental Logging"
+              />
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-4 mb-2">
+                For table-level logging, check status:
+              </p>
+              <CodeBlockWithCopy
+                code={`SELECT COUNT(*) FROM ALL_LOG_GROUPS
+    WHERE LOG_GROUP_TYPE='ALL COLUMN LOGGING'
+    AND OWNER= '<group_name>'
+    AND TABLE_NAME='<table_name>';`}
+                title="Check Table-Level Logging"
+              />
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-3 mb-2">
+                If result is zero, enable for specific table:
+              </p>
+              <CodeBlockWithCopy
+                code="ALTER TABLE <SCHEMA_NAME>.<TABLE_NAME> ADD SUPPLEMENTAL LOG DATA (ALL) COLUMNS;"
+                title="Enable Table-Level Logging"
+              />
+            </div>
+
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+              <h4 className="font-medium text-gray-900 dark:text-gray-100 mb-3">4. Check PGA/SGA Memory Settings</h4>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                Check PGA memory initialization parameters:
+              </p>
+              <CodeBlockWithCopy
+                code={`SELECT NAME, VALUE/1024/1024 as VALUE_MB
+    FROM V$PARAMETER
+    WHERE NAME IN ('pga_aggregate_limit', 'pga_aggregate_target');`}
+                title="Check PGA Settings"
+              />
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-3 mb-3">
+                Monitor current PGA memory usage:
+              </p>
+              <CodeBlockWithCopy
+                code={`SELECT NAME, VALUE, UNIT
+    FROM V$PGASTAT
+    WHERE NAME IN ('total PGA inuse','total PGA allocated');`}
+                title="Monitor PGA Usage"
+              />
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 mt-3">
+                <p className="text-xs text-blue-800 dark:text-blue-300">
+                  <strong>Oracle Buffers:</strong> LogMiner uses in-memory Oracle buffers to cache transactions. Long-running transactions can increase PGA memory consumption and lead to OOM errors. Set PGA_AGGREGATE_LIMIT appropriately based on your workload.
+                </p>
+              </div>
+            </div>
+
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+              <h4 className="font-medium text-gray-900 dark:text-gray-100 mb-3">5. Configure PGA Aggregate Limit</h4>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                Set PGA limit to prevent out-of-memory errors:
+              </p>
+              <CodeBlockWithCopy
+                code="ALTER SYSTEM SET pga_aggregate_limit = <new value> SCOPE=BOTH;"
+                title="Set PGA Limit"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                Units: K (kilobytes), M (megabytes), G (gigabytes). Example: 1G
+              </p>
+            </div>
+
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+              <h4 className="font-medium text-gray-900 dark:text-gray-100 mb-3">Step 3: Retrieve Service Name</h4>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                Get the service name (alias) for your Oracle database:
+              </p>
+              <CodeBlockWithCopy
+                code="SELECT NAME FROM V$DATABASE;"
+                title="Get Service Name"
+              />
+            </div>
+          </div>
+        )}
+
+        {sourceType === 'postgres' && (
+          <div className="space-y-4">
+            <div>
+              <h4 className="font-medium text-gray-900 dark:text-gray-100 mb-2">Check PostgreSQL Version</h4>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                PostgreSQL 10 or higher recommended
+              </p>
+              <CodeBlockWithCopy
+                code="SHOW server_version;"
+                title="Check Version"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

@@ -247,8 +247,8 @@ export function PipelineList({ onCreatePipeline }: PipelineListProps) {
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
 
   // Fetch alerts for all pipelines (no auto-refresh, only manual refresh)
-  // Set refetchInterval to undefined to disable automatic polling
-  const { data: rawAlerts = [] } = useAlerts({ refetchInterval: undefined });
+  // Set refetchInterval to false to disable automatic polling
+  const { data: rawAlerts = [] } = useAlerts({ refetchInterval: false });
 
   // Stabilize alerts array to prevent unnecessary re-renders
   const allAlerts = useMemo(() => rawAlerts, [JSON.stringify(rawAlerts)]);
@@ -266,6 +266,7 @@ export function PipelineList({ onCreatePipeline }: PipelineListProps) {
   };
 
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -398,8 +399,12 @@ export function PipelineList({ onCreatePipeline }: PipelineListProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showFilterMenu]);
 
-  const loadPipelines = async (showLoadingState = false) => {
-    if (showLoadingState) {
+  const loadPipelines = async (showLoadingState = false, isRefresh = false) => {
+    if (isRefresh) {
+      // Prevent multiple simultaneous refreshes
+      if (isRefreshing) return;
+      setIsRefreshing(true);
+    } else if (showLoadingState) {
       setIsLoading(true);
     }
     try {
@@ -530,31 +535,36 @@ export function PipelineList({ onCreatePipeline }: PipelineListProps) {
             return newPipeline;
           }
 
-          // Check if connector status actually changed
+          // Perform deep comparison of key fields to detect meaningful changes
           const sourceStatusChanged = existingPipeline.source_connector?.status !== newPipeline.source_connector?.status;
           const sinkStatusChanged = existingPipeline.sink_connector?.status !== newPipeline.sink_connector?.status;
           const statusChanged = existingPipeline.status !== newPipeline.status;
+          const deletedChanged = existingPipeline.deleted_at !== newPipeline.deleted_at;
+          const nameChanged = existingPipeline.name !== newPipeline.name;
+          const hasPendingChanged =
+            existingPipeline.source_connector?.has_pending_changes !== newPipeline.source_connector?.has_pending_changes ||
+            existingPipeline.sink_connector?.has_pending_changes !== newPipeline.sink_connector?.has_pending_changes;
+          const pendingUpdateChanged =
+            existingPipeline.source_connector?.pending_update !== newPipeline.source_connector?.pending_update ||
+            existingPipeline.sink_connector?.pending_update !== newPipeline.sink_connector?.pending_update;
 
-          // If nothing changed, return the exact same reference to prevent re-render
-          if (!sourceStatusChanged && !sinkStatusChanged && !statusChanged) {
+          // If nothing meaningful changed, return the exact same reference to prevent re-render
+          if (!sourceStatusChanged && !sinkStatusChanged && !statusChanged &&
+              !deletedChanged && !nameChanged && !hasPendingChanged && !pendingUpdateChanged) {
             return existingPipeline;
           }
 
-          // Something changed, mark it
+          // Something changed, mark it and return updated pipeline with preserved values
           hasChanges = true;
-
-          // Only update if something actually changed
           return {
-            ...existingPipeline,
-            source_connector: sourceStatusChanged
-              ? { ...existingPipeline.source_connector, status: newPipeline.source_connector.status }
-              : existingPipeline.source_connector,
-            sink_connector: sinkStatusChanged
-              ? { ...existingPipeline.sink_connector, status: newPipeline.sink_connector.status }
-              : existingPipeline.sink_connector,
-            status: statusChanged ? newPipeline.status : existingPipeline.status,
-            deletion_time: newPipeline.deletion_time,
-            time_remaining: newPipeline.time_remaining,
+            ...newPipeline,
+            // Preserve stable values to prevent unnecessary re-renders
+            events_ingested: existingPipeline.events_ingested,
+            events_loaded: existingPipeline.events_loaded,
+            error_count: existingPipeline.error_count,
+            last_sync_time: existingPipeline.last_sync_time,
+            deletion_time: existingPipeline.deletion_time ?? newPipeline.deletion_time,
+            time_remaining: existingPipeline.time_remaining ?? newPipeline.time_remaining,
           };
         });
 
@@ -565,7 +575,9 @@ export function PipelineList({ onCreatePipeline }: PipelineListProps) {
       showToast('error', 'An error occurred', 'Please try again');
       console.error(error);
     } finally {
-      if (showLoadingState) {
+      if (isRefresh) {
+        setIsRefreshing(false);
+      } else if (showLoadingState) {
         setIsLoading(false);
       }
     }
@@ -1974,14 +1986,6 @@ export function PipelineList({ onCreatePipeline }: PipelineListProps) {
           </select>
 
           <button
-            onClick={loadPipelines}
-            className="p-1.5 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-            title="Refresh pipelines"
-          >
-            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-          </button>
-
-          <button
             onClick={onCreatePipeline}
             disabled={isReadOnly}
             className="inline-flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -2074,6 +2078,17 @@ export function PipelineList({ onCreatePipeline }: PipelineListProps) {
                     disabled={pipeline.status === 'draft'}
                   >
                     <Bell className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      loadPipelines(false, true);
+                    }}
+                    className="p-1 rounded transition-colors hover:bg-gray-100 dark:hover:bg-gray-700"
+                    title="Refresh pipeline"
+                    disabled={isRefreshing}
+                  >
+                    <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
                   </button>
                   {readyForDeploy && (
                     <button
@@ -2379,6 +2394,17 @@ export function PipelineList({ onCreatePipeline }: PipelineListProps) {
                   title="View Alert Settings"
                 >
                   <Bell className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    loadPipelines(false, true);
+                  }}
+                  className="p-1 rounded transition-colors hover:bg-gray-100 dark:hover:bg-gray-700"
+                  title="Refresh pipeline"
+                  disabled={isRefreshing}
+                >
+                  <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
                 </button>
                 {readyForDeploy && (
                   <button

@@ -24,7 +24,7 @@ interface AlertStats {
 
 interface UseAlertsOptions {
   enabled?: boolean;
-  refetchInterval?: number;
+  refetchInterval?: number | false;
 }
 
 /**
@@ -55,7 +55,7 @@ export function useAlertStats({ enabled = true, refetchInterval = 10000 }: UseAl
  * React Query hook for fetching all unresolved alerts
  * Used for showing alerts in global alerts page
  */
-export function useAlerts({ enabled = true, refetchInterval = 10000 }: UseAlertsOptions = {}) {
+export function useAlerts({ enabled = true, refetchInterval }: UseAlertsOptions = {}) {
   return useQuery<AlertEvent[]>({
     queryKey: ['alerts'],
     queryFn: async () => {

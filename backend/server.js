@@ -6,6 +6,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import Ajv from 'ajv';
 import pg from 'pg';
+import { getCached, setCached, initRedis } from './redis-cache.js';
 // import { applyDeployment as applyDeploymentJob } from './services/connectDeployer.js'; 
 
 const PORT = Number(process.env.BACKEND_PORT || process.env.PORT || 5001);
@@ -55,6 +56,284 @@ function maskSensitiveData(obj) {
 }
 
 server.get('/api/health', async () => ({ status: 'ok' }));
+
+// Initialize Redis for monitoring panel preferences
+await initRedis();
+
+// Monitoring Panel Preferences API
+// GET: Retrieve user's panel preferences for a pipeline
+server.get('/api/monitoring-panels/:pipelineId', async (request, reply) => {
+  const { pipelineId } = request.params;
+  const userId = request.query.userId || 'default';
+
+  try {
+    const key = `user-prefs:monitoring-panels:${userId}:${pipelineId}`;
+    const panels = await getCached(key);
+
+    return reply.send({
+      success: true,
+      panels: panels || { panels: [] }
+    });
+  } catch (error) {
+    request.log.error({ err: error }, 'Failed to get monitoring panels');
+    return reply.code(500).send({
+      success: false,
+      error: error.message || 'Failed to get monitoring panels'
+    });
+  }
+});
+
+// POST: Save user's panel preferences for a pipeline
+server.post('/api/monitoring-panels/:pipelineId', async (request, reply) => {
+  const { pipelineId } = request.params;
+  const { userId = 'default', panels = [] } = request.body || {};
+
+  try {
+    const key = `user-prefs:monitoring-panels:${userId}:${pipelineId}`;
+    const config = {
+      panels,
+      timestamp: new Date().toISOString()
+    };
+
+    // Store for 30 days (30 * 24 * 60 * 60 seconds)
+    await setCached(key, config, 30 * 24 * 60 * 60);
+
+    return reply.send({
+      success: true,
+      message: 'Panel preferences saved'
+    });
+  } catch (error) {
+    request.log.error({ err: error }, 'Failed to save monitoring panels');
+    return reply.code(500).send({
+      success: false,
+      error: error.message || 'Failed to save monitoring panels'
+    });
+  }
+});
+
+// Monitoring Layout Preferences API
+// GET: Retrieve user's layout preferences for a pipeline
+server.get('/api/monitoring-layout/:pipelineId', async (request, reply) => {
+  const { pipelineId } = request.params;
+  const userId = request.query.userId || 'default';
+
+  try {
+    const key = `user-prefs:monitoring-layout:${userId}:${pipelineId}`;
+    const layout = await getCached(key);
+
+    if (!layout) {
+      return reply.send({
+        success: true,
+        layout: null,
+        message: 'No layout preferences found'
+      });
+    }
+
+    return reply.send({
+      success: true,
+      layout
+    });
+  } catch (error) {
+    request.log.error({ err: error }, 'Failed to load monitoring layout');
+    return reply.code(500).send({
+      success: false,
+      error: error.message || 'Failed to load monitoring layout'
+    });
+  }
+});
+
+// POST: Save user's layout preferences for a pipeline
+server.post('/api/monitoring-layout/:pipelineId', async (request, reply) => {
+  const { pipelineId } = request.params;
+  const { userId = 'default', layout = [] } = request.body || {};
+
+  try {
+    const key = `user-prefs:monitoring-layout:${userId}:${pipelineId}`;
+    const config = {
+      layout,
+      timestamp: new Date().toISOString()
+    };
+
+    // Store for 30 days (30 * 24 * 60 * 60 seconds)
+    await setCached(key, config, 30 * 24 * 60 * 60);
+
+    return reply.send({
+      success: true,
+      message: 'Layout preferences saved'
+    });
+  } catch (error) {
+    request.log.error({ err: error }, 'Failed to save monitoring layout');
+    return reply.code(500).send({
+      success: false,
+      error: error.message || 'Failed to save monitoring layout'
+    });
+  }
+});
+
+// GET /api/pipelines/:pipelineId/wal-size - Get WAL size and replication slot info
+server.get('/api/pipelines/:pipelineId/wal-size', async (request, reply) => {
+  const { pipelineId } = request.params;
+
+  try {
+    // Get pipeline info from database
+    const pipelineResult = await registryPool.query(
+      `SELECT id, name, source_type, source_config, enable_log_monitoring,
+              max_wal_size, alert_threshold
+       FROM pipelines
+       WHERE id = $1`,
+      [pipelineId]
+    );
+
+    if (pipelineResult.rows.length === 0) {
+      return reply.code(404).send({
+        success: false,
+        error: 'Pipeline not found'
+      });
+    }
+
+    const pipeline = pipelineResult.rows[0];
+
+    // Only support PostgreSQL sources
+    if (pipeline.source_type !== 'postgres') {
+      return reply.send({
+        success: true,
+        data: null,
+        message: 'WAL monitoring only available for PostgreSQL sources'
+      });
+    }
+
+    const sourceConfig = pipeline.source_config;
+
+    // Get connector config to find slot name and password
+    const connectorResult = await registryPool.query(
+      `SELECT config FROM pipeline_connectors
+       WHERE pipeline_id = $1 AND type = 'source'`,
+      [pipelineId]
+    );
+
+    if (connectorResult.rows.length === 0) {
+      return reply.code(404).send({
+        success: false,
+        error: 'Source connector not found'
+      });
+    }
+
+    const connectorConfig = connectorResult.rows[0].config;
+
+    // Get slot name
+    const slotName = connectorConfig['slot.name'] ||
+                     `${pipeline.name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}_slot`;
+
+    // Get password from connector config
+    const password = connectorConfig['database.password'] || '';
+
+    // Get connection details - prefer connector config, fallback to source_config
+    let host = connectorConfig['database.hostname'] || sourceConfig.host;
+    const port = parseInt(connectorConfig['database.port']) || sourceConfig.port || 5432;
+    const database = connectorConfig['database.dbname'] || sourceConfig.database_name;
+    const username = connectorConfig['database.user'] || sourceConfig.username;
+    const useSSL = connectorConfig['use_ssl'] === 'true' || sourceConfig.ssl;
+
+    // If host is a Docker service name (pg-debezium), use localhost for external access
+    if (host === 'pg-debezium' || host === 'postgres' || host.includes('docker')) {
+      host = '127.0.0.1';
+    }
+
+    // Connect to source PostgreSQL
+    const sourcePool = new PgPool({
+      host: host,
+      port: port,
+      database: database,
+      user: username,
+      password: password,
+      ssl: useSSL ? { rejectUnauthorized: false } : false,
+      connectionTimeoutMillis: 5000,
+    });
+
+    let sourceClient;
+    try {
+      sourceClient = await sourcePool.connect();
+
+      // Query WAL size and replication slot info
+      const walResult = await sourceClient.query(`
+        SELECT
+          slot_name,
+          active,
+          COALESCE(
+            pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn) / (1024 * 1024),
+            0
+          ) as wal_size_mb,
+          COALESCE(
+            pg_wal_lsn_diff(pg_current_wal_lsn(), confirmed_flush_lsn),
+            0
+          ) as lag_bytes,
+          CASE
+            WHEN active THEN 'streaming'
+            ELSE 'inactive'
+          END as wal_status
+        FROM pg_replication_slots
+        WHERE slot_name = $1
+      `, [slotName]);
+
+      if (walResult.rows.length === 0) {
+        return reply.send({
+          success: true,
+          data: null,
+          message: `No replication slot found: ${slotName}`
+        });
+      }
+
+      const slotData = walResult.rows[0];
+      const walSizeMB = parseFloat(slotData.wal_size_mb);
+
+      // Query physical WAL directory info
+      const walDirResult = await sourceClient.query(`
+        SELECT
+          pg_size_pretty(sum((pg_stat_file('pg_wal/' || name)).size)) as total_wal_size,
+          sum((pg_stat_file('pg_wal/' || name)).size) / (1024 * 1024) as total_wal_size_mb,
+          count(*) as wal_file_count
+        FROM pg_ls_waldir()
+      `);
+
+      const walDirData = walDirResult.rows[0] || {
+        total_wal_size: '0 bytes',
+        total_wal_size_mb: 0,
+        wal_file_count: 0
+      };
+
+      return reply.send({
+        success: true,
+        data: {
+          wal_size_mb: walSizeMB,
+          max_wal_size_mb: pipeline.max_wal_size || 1024,
+          alert_threshold_percent: pipeline.alert_threshold || 80,
+          replication_slot: {
+            slot_name: slotData.slot_name,
+            active: slotData.active,
+            wal_status: slotData.wal_status,
+            lag_bytes: parseInt(slotData.lag_bytes) || 0
+          },
+          physical_wal: {
+            total_size_mb: parseFloat(walDirData.total_wal_size_mb) || 0,
+            total_size_pretty: walDirData.total_wal_size,
+            file_count: parseInt(walDirData.wal_file_count) || 0
+          }
+        }
+      });
+
+    } finally {
+      if (sourceClient) sourceClient.release();
+      await sourcePool.end();
+    }
+
+  } catch (error) {
+    request.log.error({ err: error, pipelineId }, 'Failed to get WAL size');
+    return reply.code(500).send({
+      success: false,
+      error: error.message || 'Failed to get WAL size'
+    });
+  }
+});
 
 server.post('/api/test-connection', async (request, reply) => {
   const payload = request.body ?? {};

@@ -1,5 +1,7 @@
-import { useState } from 'react';
-import { Eye, EyeOff } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Eye, EyeOff, MessageSquare } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
+import { useParams } from 'react-router-dom';
 
 interface PostgresSourceSettingsProps {
   config: Record<string, unknown>;
@@ -7,7 +9,13 @@ interface PostgresSourceSettingsProps {
 }
 
 export function PostgresSourceSettings({ config, onChange }: PostgresSourceSettingsProps) {
+  const { id: pipelineId } = useParams<{ id: string }>();
   const [showPassword, setShowPassword] = useState(false);
+  const [enableLogMonitoring, setEnableLogMonitoring] = useState(false);
+  const [maxWalSize, setMaxWalSize] = useState(1024);
+  const [alertThreshold, setAlertThreshold] = useState(80);
+  const [logMonitoringSlack, setLogMonitoringSlack] = useState(false);
+  const [savingLogMonitoring, setSavingLogMonitoring] = useState(false);
 
   const updateField = (field: string, value: unknown) => {
     onChange({ ...config, [field]: value });
@@ -30,6 +38,120 @@ export function PostgresSourceSettings({ config, onChange }: PostgresSourceSetti
       if (!Number.isNaN(parsed)) return parsed;
     }
     return fallback;
+  };
+
+  // Load log monitoring preferences
+  useEffect(() => {
+    const loadLogMonitoring = async () => {
+      if (!pipelineId) return;
+
+      try {
+        const { data, error } = await supabase
+          .from('pipelines')
+          .select('enable_log_monitoring, max_wal_size, alert_threshold, log_monitoring_slack')
+          .eq('id', pipelineId)
+          .single();
+
+        if (error) throw error;
+        if (data) {
+          setEnableLogMonitoring(data.enable_log_monitoring || false);
+          setMaxWalSize(data.max_wal_size || 1024);
+          setAlertThreshold(data.alert_threshold || 80);
+          setLogMonitoringSlack(data.log_monitoring_slack || false);
+        }
+      } catch (error) {
+        console.error('Error loading log monitoring preferences:', error);
+      }
+    };
+
+    loadLogMonitoring();
+  }, [pipelineId]);
+
+  // Save log monitoring preferences
+  const handleEnableLogMonitoringChange = async (enabled: boolean) => {
+    if (!pipelineId) return;
+
+    setEnableLogMonitoring(enabled);
+    setSavingLogMonitoring(true);
+
+    try {
+      const { error } = await supabase
+        .from('pipelines')
+        .update({ enable_log_monitoring: enabled })
+        .eq('id', pipelineId);
+
+      if (error) throw error;
+      console.log('✓ Log monitoring enabled/disabled');
+    } catch (error) {
+      console.error('Error saving log monitoring preference:', error);
+      setEnableLogMonitoring(!enabled);
+    } finally {
+      setSavingLogMonitoring(false);
+    }
+  };
+
+  const handleMaxWalSizeChange = async (value: number) => {
+    if (!pipelineId) return;
+
+    setMaxWalSize(value);
+    setSavingLogMonitoring(true);
+
+    try {
+      const { error } = await supabase
+        .from('pipelines')
+        .update({ max_wal_size: value })
+        .eq('id', pipelineId);
+
+      if (error) throw error;
+      console.log('✓ Max WAL size saved');
+    } catch (error) {
+      console.error('Error saving max WAL size:', error);
+    } finally {
+      setSavingLogMonitoring(false);
+    }
+  };
+
+  const handleAlertThresholdChange = async (value: number) => {
+    if (!pipelineId) return;
+
+    setAlertThreshold(value);
+    setSavingLogMonitoring(true);
+
+    try {
+      const { error } = await supabase
+        .from('pipelines')
+        .update({ alert_threshold: value })
+        .eq('id', pipelineId);
+
+      if (error) throw error;
+      console.log('✓ Alert threshold saved');
+    } catch (error) {
+      console.error('Error saving alert threshold:', error);
+    } finally {
+      setSavingLogMonitoring(false);
+    }
+  };
+
+  const handleLogMonitoringSlackChange = async (enabled: boolean) => {
+    if (!pipelineId) return;
+
+    setLogMonitoringSlack(enabled);
+    setSavingLogMonitoring(true);
+
+    try {
+      const { error } = await supabase
+        .from('pipelines')
+        .update({ log_monitoring_slack: enabled })
+        .eq('id', pipelineId);
+
+      if (error) throw error;
+      console.log('✓ Slack notifications preference saved');
+    } catch (error) {
+      console.error('Error saving slack notifications preference:', error);
+      setLogMonitoringSlack(!enabled);
+    } finally {
+      setSavingLogMonitoring(false);
+    }
   };
 
   return (
@@ -500,6 +622,103 @@ export function PostgresSourceSettings({ config, onChange }: PostgresSourceSetti
               className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
             />
           </div>
+        </div>
+      </div>
+
+      <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+        <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
+          <MessageSquare className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+          Log Monitoring
+        </h4>
+
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+          <div className="space-y-4">
+            {/* Enable Log Monitoring Toggle */}
+            <label className="flex items-start gap-3 cursor-pointer group">
+              <div className="relative inline-block w-11 h-6 mt-0.5">
+                <input
+                  type="checkbox"
+                  checked={enableLogMonitoring}
+                  onChange={(e) => handleEnableLogMonitoringChange(e.target.checked)}
+                  disabled={savingLogMonitoring}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-gray-200 dark:bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+              </div>
+              <div className="flex-1">
+                <div className="text-sm font-medium text-gray-900 dark:text-gray-100">Enable Log Monitoring</div>
+                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                  Enable or disable log monitoring for your Source
+                </p>
+              </div>
+              {savingLogMonitoring && (
+                <span className="text-xs text-blue-600 dark:text-blue-400">Saving...</span>
+              )}
+            </label>
+
+            {/* Show configuration when enabled */}
+            {enableLogMonitoring && (
+              <div className="pl-14 space-y-4 border-t border-blue-200 dark:border-blue-800 pt-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">
+                      Max WAL Size (MB)
+                    </label>
+                    <input
+                      type="number"
+                      value={maxWalSize}
+                      onChange={(e) => handleMaxWalSizeChange(parseInt(e.target.value, 10) || 1024)}
+                      onBlur={(e) => handleMaxWalSizeChange(parseInt(e.target.value, 10) || 1024)}
+                      disabled={savingLogMonitoring}
+                      min="0"
+                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-gray-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">
+                      Alert Threshold (%)
+                    </label>
+                    <input
+                      type="number"
+                      value={alertThreshold}
+                      onChange={(e) => handleAlertThresholdChange(parseInt(e.target.value, 10) || 80)}
+                      onBlur={(e) => handleAlertThresholdChange(parseInt(e.target.value, 10) || 80)}
+                      disabled={savingLogMonitoring}
+                      min="0"
+                      max="100"
+                      className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-gray-100"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    id="log-monitoring-slack"
+                    checked={logMonitoringSlack}
+                    onChange={(e) => handleLogMonitoringSlackChange(e.target.checked)}
+                    disabled={savingLogMonitoring}
+                    className="mt-1 rounded"
+                  />
+                  <div className="flex-1">
+                    <label
+                      htmlFor="log-monitoring-slack"
+                      className="text-sm font-medium text-gray-900 dark:text-gray-100 cursor-pointer"
+                    >
+                      Send Slack Notifications
+                    </label>
+                    <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                      Receive alert notifications over Slack when the WAL size exceeds the specified alert threshold value
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-3 italic">
+            Note: This setting does not affect the connector configuration
+          </p>
         </div>
       </div>
     </div>

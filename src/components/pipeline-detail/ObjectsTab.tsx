@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo, memo, useRef, useCallback } from 'react';
-import { Search, Database, RefreshCw, Eye, AlertTriangle, CheckCircle, Clock, X, Play, Pause, RotateCw, Sparkles, TrendingUp } from 'lucide-react';
+import React, { useState, useEffect, useMemo, memo, useRef, useCallback } from 'react';
+import { Search, Database, RefreshCw, Eye, AlertTriangle, CheckCircle, Clock, X, Play, Pause, RotateCw, Sparkles, TrendingUp, ChevronDown, ChevronRight } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { DatabaseLogoIcon } from '../ui/DatabaseLogos';
 import { DeploymentDiffModal } from '../ui/DeploymentDiffModal';
@@ -14,6 +14,16 @@ interface TaskInfo {
   throughput: string;
   type: 'source' | 'sink';
   connector_name: string;
+}
+
+interface StageInfo {
+  name: string;
+  startedAt: string;
+  duration: string;
+  input: number;
+  output: number;
+  failed: number;
+  status: 'completed' | 'running' | 'failed' | 'pending';
 }
 
 interface TableObject {
@@ -82,6 +92,9 @@ export const ObjectsTab = memo(function ObjectsTab({ pipelineId, pipelineStatus,
   const [loading, setLoading] = useState(true);
   const [increasedTables, setIncreasedTables] = useState<Set<string>>(new Set());
   const previousValuesRef = useRef<Record<string, { row_count: number; size_estimate: string }>>({});
+  const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
+  const [tableStages, setTableStages] = useState<Record<string, StageInfo[]>>({});
+  const [loadingStages, setLoadingStages] = useState<Set<string>>(new Set());
 
   // Auto-update selectedTable when connectorStatuses changes (for real-time task status updates in modal)
   // This ensures the modal shows live task status immediately
@@ -134,26 +147,12 @@ export const ObjectsTab = memo(function ObjectsTab({ pipelineId, pipelineStatus,
   }, [connectorStatuses, selectedTable?.id]); // Re-run when connectorStatuses changes or modal opens
 
   const maskSensitiveFields = (config: Record<string, unknown>): Record<string, unknown> => {
-    // Only mask actual sensitive fields, not fields that just contain these words
-    const exactSensitiveKeys = [
-      'connection.password',
-      'database.password',
-      'password',
-      'jaas.config',
-      'apikey',
-      'api.key',
-      'secret',
-      'token',
-      'auth.token'
-    ];
+    const sensitiveKeys = ['password', 'jaas.config', 'apikey', 'secret', 'token', 'key', 'username'];
     const masked: Record<string, unknown> = {};
 
     for (const [key, value] of Object.entries(config)) {
       const lowerKey = key.toLowerCase();
-      // Check if the key exactly matches or ends with a sensitive key
-      const isSensitive = exactSensitiveKeys.some(sensitive =>
-        lowerKey === sensitive || lowerKey.endsWith(`.${sensitive}`)
-      );
+      const isSensitive = sensitiveKeys.some(sensitive => lowerKey.includes(sensitive));
 
       if (isSensitive && typeof value === 'string' && value.length > 0) {
         masked[key] = '********';
@@ -163,6 +162,59 @@ export const ObjectsTab = memo(function ObjectsTab({ pipelineId, pipelineStatus,
     }
 
     return masked;
+  };
+
+  const toggleTableExpansion = async (tableId: string) => {
+    const newExpanded = new Set(expandedTables);
+
+    if (expandedTables.has(tableId)) {
+      // Collapse
+      newExpanded.delete(tableId);
+      setExpandedTables(newExpanded);
+    } else {
+      // Expand - fetch stage data if not already loaded
+      newExpanded.add(tableId);
+      setExpandedTables(newExpanded);
+
+      if (!tableStages[tableId]) {
+        // Fetch stage data
+        const newLoadingStages = new Set(loadingStages);
+        newLoadingStages.add(tableId);
+        setLoadingStages(newLoadingStages);
+
+        try {
+          const backendUrl = import.meta.env.VITE_DEBEZIUM_BACKEND_URL;
+          const url = `${backendUrl}/api/pipelines/${pipelineId}/tables/${tableId}/stages`;
+          console.log('Fetching stage data from:', url);
+
+          const response = await fetch(url);
+          console.log('Response status:', response.status);
+
+          if (response.ok) {
+            const data = await response.json();
+            console.log('Stage data received:', data);
+
+            if (data.success && data.stages) {
+              console.log('Setting table stages for', tableId, ':', data.stages);
+              setTableStages(prev => ({
+                ...prev,
+                [tableId]: data.stages
+              }));
+            } else {
+              console.warn('No stages in response or success=false', data);
+            }
+          } else {
+            console.error('Failed to fetch stage data:', response.status, await response.text());
+          }
+        } catch (error) {
+          console.error('Error fetching stage data:', error);
+        } finally {
+          const newLoadingStages = new Set(loadingStages);
+          newLoadingStages.delete(tableId);
+          setLoadingStages(newLoadingStages);
+        }
+      }
+    }
   };
 
   const handleConnectorPause = async (connectorName: string) => {
@@ -795,10 +847,9 @@ export const ObjectsTab = memo(function ObjectsTab({ pipelineId, pipelineStatus,
           <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Tables</h3>
           <button
             onClick={fetchData}
-            className="p-1.5 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-            title="Refresh tables"
+            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className="w-5 h-5 text-gray-600 dark:text-gray-400" />
           </button>
         </div>
 
@@ -871,117 +922,240 @@ export const ObjectsTab = memo(function ObjectsTab({ pipelineId, pipelineStatus,
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-              {filteredTables.map((table) => (
-                <tr
-                  key={table.id}
-                  onClick={() => setSelectedTable(table)}
-                  className="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
-                >
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <DatabaseLogoIcon
-                        connectorClass={sourceConnectors[0]?.connector_class}
-                        sourceType={sourceType}
-                        className="w-8 h-8 flex-shrink-0"
-                      />
-                      <div>
-                        <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                          {table.table_name}
-                        </div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400">{table.schema_name}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <DatabaseLogoIcon
-                        connectorClass={sourceConnectors[0]?.connector_class}
-                        sourceType={sourceType}
-                        className="w-12 h-12 flex-shrink-0"
-                      />
-                      <span className="text-2xl text-gray-400 dark:text-gray-500 font-light">→</span>
-                      <DatabaseLogoIcon
-                        connectorClass={sinkConnectors[0]?.connector_class}
-                        sourceType={destinationType}
-                        className="w-12 h-12 flex-shrink-0"
-                      />
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="space-y-1">
-                      <span
-                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(table.status)}`}
-                      >
-                        {getStatusIcon(table.status)}
-                        {table.status}
-                      </span>
-                      {table.status === 'snapshotting' && table.snapshot_progress !== undefined && (
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-blue-600 transition-all duration-300"
-                              style={{ width: `${table.snapshot_progress}%` }}
-                            />
-                          </div>
-                          <span className="text-xs text-gray-600 dark:text-gray-400">
-                            {table.snapshot_progress}%
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">
-                    {formatTimestamp(table.last_event_timestamp)}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-900 dark:text-gray-100">
-                    <div className="flex items-center gap-1.5">
-                      <span>{table.row_count.toLocaleString()}</span>
-                      {increasedTables.has(`${table.schema_name}.${table.table_name}`) && (
-                        <TrendingUp className="w-4 h-4 text-green-600 dark:text-green-400 animate-bounce" />
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">
-                    <div className="flex items-center gap-1.5">
-                      <span>{table.size_estimate}</span>
-                      {increasedTables.has(`${table.schema_name}.${table.table_name}`) && (
-                        <TrendingUp className="w-4 h-4 text-green-600 dark:text-green-400 animate-bounce" />
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="text-sm text-gray-900 dark:text-gray-100 font-mono">
-                      {table.destination_table}
-                    </div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">
-                      {table.partition_count} partitions
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    {table.tasks && table.tasks.length > 0 ? (
-                      <div className="flex items-center gap-1.5">
-                        {table.tasks.map((task) => (
-                          <div
-                            key={task.id}
-                            className={`px-2.5 py-1 rounded text-xs font-medium ${
-                              task.status === 'running'
-                                ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
-                                : task.status === 'paused'
-                                ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300'
-                                : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
-                            }`}
-                            title={`${task.type === 'source' ? 'Source' : 'Sink'}: ${task.connector_name}\nTask ${task.task_number}\nWorker: ${task.worker_id}`}
+              {filteredTables.map((table) => {
+                const isExpanded = expandedTables.has(table.id);
+                const stages = tableStages[table.id] || [];
+                const isLoadingStages = loadingStages.has(table.id);
+
+                return (
+                  <React.Fragment key={table.id}>
+                    <tr className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleTableExpansion(table.id);
+                            }}
+                            className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
                           >
-                            {task.type === 'source' ? 'SRC' : 'SINK'}-{task.task_number}
+                            {isExpanded ? (
+                              <ChevronDown className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                            ) : (
+                              <ChevronRight className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                            )}
+                          </button>
+                          <div
+                            onClick={() => setSelectedTable(table)}
+                            className="flex items-center gap-3 cursor-pointer"
+                          >
+                            <DatabaseLogoIcon
+                              connectorClass={sourceConnectors[0]?.connector_class}
+                              sourceType={sourceType}
+                              className="w-8 h-8 flex-shrink-0"
+                            />
+                            <div>
+                              <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                {table.table_name}
+                              </div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400">{table.schema_name}</div>
+                            </div>
                           </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <span className="text-xs text-gray-400 dark:text-gray-500">No tasks</span>
+                        </div>
+                      </td>
+                      <td
+                        className="px-6 py-4 cursor-pointer"
+                        onClick={() => setSelectedTable(table)}
+                      >
+                        <div className="flex items-center gap-3">
+                          <DatabaseLogoIcon
+                            connectorClass={sourceConnectors[0]?.connector_class}
+                            sourceType={sourceType}
+                            className="w-12 h-12 flex-shrink-0"
+                          />
+                          <span className="text-2xl text-gray-400 dark:text-gray-500 font-light">→</span>
+                          <DatabaseLogoIcon
+                            connectorClass={sinkConnectors[0]?.connector_class}
+                            sourceType={destinationType}
+                            className="w-12 h-12 flex-shrink-0"
+                          />
+                        </div>
+                      </td>
+                      <td
+                        className="px-6 py-4 cursor-pointer"
+                        onClick={() => setSelectedTable(table)}
+                      >
+                        <div className="space-y-1">
+                          <span
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(table.status)}`}
+                          >
+                            {getStatusIcon(table.status)}
+                            {table.status}
+                          </span>
+                          {table.status === 'snapshotting' && table.snapshot_progress !== undefined && (
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-blue-600 transition-all duration-300"
+                                  style={{ width: `${table.snapshot_progress}%` }}
+                                />
+                              </div>
+                              <span className="text-xs text-gray-600 dark:text-gray-400">
+                                {table.snapshot_progress}%
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                      <td
+                        className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400 cursor-pointer"
+                        onClick={() => setSelectedTable(table)}
+                      >
+                        {formatTimestamp(table.last_event_timestamp)}
+                      </td>
+                      <td
+                        className="px-6 py-4 text-sm text-gray-900 dark:text-gray-100 cursor-pointer"
+                        onClick={() => setSelectedTable(table)}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span>{table.row_count.toLocaleString()}</span>
+                          {increasedTables.has(`${table.schema_name}.${table.table_name}`) && (
+                            <TrendingUp className="w-4 h-4 text-green-600 dark:text-green-400 animate-bounce" />
+                          )}
+                        </div>
+                      </td>
+                      <td
+                        className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400 cursor-pointer"
+                        onClick={() => setSelectedTable(table)}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span>{table.size_estimate}</span>
+                          {increasedTables.has(`${table.schema_name}.${table.table_name}`) && (
+                            <TrendingUp className="w-4 h-4 text-green-600 dark:text-green-400 animate-bounce" />
+                          )}
+                        </div>
+                      </td>
+                      <td
+                        className="px-6 py-4 cursor-pointer"
+                        onClick={() => setSelectedTable(table)}
+                      >
+                        <div className="text-sm text-gray-900 dark:text-gray-100 font-mono">
+                          {table.destination_table}
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">
+                          {table.partition_count} partitions
+                        </div>
+                      </td>
+                      <td
+                        className="px-6 py-4 cursor-pointer"
+                        onClick={() => setSelectedTable(table)}
+                      >
+                        {table.tasks && table.tasks.length > 0 ? (
+                          <div className="flex items-center gap-1.5">
+                            {table.tasks.map((task) => (
+                              <div
+                                key={task.id}
+                                className={`px-2.5 py-1 rounded text-xs font-medium ${
+                                  task.status === 'running'
+                                    ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+                                    : task.status === 'paused'
+                                    ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300'
+                                    : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
+                                }`}
+                                title={`${task.type === 'source' ? 'Source' : 'Sink'}: ${task.connector_name}\nTask ${task.task_number}\nWorker: ${task.worker_id}`}
+                              >
+                                {task.type === 'source' ? 'SRC' : 'SINK'}-{task.task_number}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-400 dark:text-gray-500">No tasks</span>
+                        )}
+                      </td>
+                    </tr>
+
+                    {/* Expanded Stage Details */}
+                    {isExpanded && (
+                      <tr key={`${table.id}-expanded`}>
+                        <td colSpan={8} className="px-6 py-4 bg-gray-50 dark:bg-gray-900/50">
+                          {isLoadingStages ? (
+                            <div className="flex items-center justify-center py-4 text-gray-500 dark:text-gray-400">
+                              <RefreshCw className="w-5 h-5 animate-spin mr-2" />
+                              Loading stage details...
+                            </div>
+                          ) : stages.length > 0 ? (
+                            <div className="border-2 border-blue-500 dark:border-blue-600 rounded-lg overflow-hidden">
+                              <table className="min-w-full">
+                                <thead className="bg-gray-100 dark:bg-gray-800">
+                                  <tr>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 dark:text-gray-300">
+                                      Stage
+                                    </th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 dark:text-gray-300">
+                                      Started At
+                                    </th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 dark:text-gray-300">
+                                      Duration
+                                    </th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 dark:text-gray-300">
+                                      # Input
+                                    </th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 dark:text-gray-300">
+                                      # Output
+                                    </th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 dark:text-gray-300">
+                                      # Failed
+                                    </th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 dark:text-gray-300">
+                                      Status
+                                    </th>
+                                  </tr>
+                                </thead>
+                                <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                                  {stages.map((stage, idx) => (
+                                    <tr key={idx}>
+                                      <td className="px-4 py-3 text-sm text-gray-900 dark:text-gray-100 font-medium">
+                                        {stage.name}
+                                      </td>
+                                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                                        {formatTimestamp(stage.startedAt)}
+                                      </td>
+                                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                                        {stage.duration}
+                                      </td>
+                                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                                        {stage.input.toLocaleString()}
+                                      </td>
+                                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                                        {stage.output.toLocaleString()}
+                                      </td>
+                                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                                        {stage.failed.toLocaleString()}
+                                      </td>
+                                      <td className="px-4 py-3">
+                                        <span
+                                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(stage.status)}`}
+                                        >
+                                          {getStatusIcon(stage.status)}
+                                          {stage.status}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : (
+                            <div className="text-center py-4 text-gray-500 dark:text-gray-400">
+                              No stage details available
+                            </div>
+                          )}
+                        </td>
+                      </tr>
                     )}
-                  </td>
-                </tr>
-              ))}
+                  </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -1037,16 +1211,18 @@ export const ObjectsTab = memo(function ObjectsTab({ pipelineId, pipelineStatus,
           pendingConfig={maskSensitiveFields(diffConnector.pending_config || {})}
           onDeploy={async () => {
             try {
-              const backendUrl = import.meta.env.VITE_DEBEZIUM_BACKEND_URL || 'http://localhost:5002';
-              const response = await fetch(`${backendUrl}/api/connectors/${diffConnector.id}/deploy-pending`, {
-                method: 'POST'
-              });
+              const { error } = await supabase
+                .from('pipeline_connectors')
+                .update({
+                  config: diffConnector.pending_config,
+                  pending_config: null,
+                  has_pending_changes: false,
+                  last_deployed_at: new Date().toISOString(),
+                  last_deployed_version: (diffConnector as any).last_deployed_version ? (diffConnector as any).last_deployed_version + 1 : 1
+                })
+                .eq('id', diffConnector.id);
 
-              const result = await response.json();
-
-              if (!result.success) {
-                throw new Error(result.error || 'Failed to deploy changes');
-              }
+              if (error) throw error;
 
               setShowDiffModal(false);
               setDiffConnector(null);
@@ -1057,7 +1233,7 @@ export const ObjectsTab = memo(function ObjectsTab({ pipelineId, pipelineStatus,
               }));
             } catch (error) {
               console.error('Deploy error:', error);
-              alert(`Failed to deploy changes: ${error.message}`);
+              alert('Failed to deploy changes');
             }
           }}
           onDismiss={async () => {

@@ -1,6 +1,6 @@
-import { Database, Settings2, TrendingUp, Info, RotateCw, Loader2, Clock } from 'lucide-react';
-import { useMemo, memo, useRef, useEffect } from 'react';
-import { usePipelineActivity, type RefreshInterval } from '../../hooks/usePipelineActivity';
+import { Database, Settings2, ArrowRight, Loader2, TrendingUp, RotateCw } from 'lucide-react';
+import { useMemo, memo, useRef, useEffect, useState } from 'react';
+import { usePipelineActivity, type RefreshInterval, type TimeRange } from '../../hooks/usePipelineActivity';
 
 interface PipelineActivityProps {
   pipelineId: string;
@@ -41,28 +41,54 @@ function isEqual(a: unknown, b: unknown): boolean {
   }
 }
 
-const REFRESH_INTERVALS: { value: RefreshInterval; label: string }[] = [
-  { value: 1000, label: '1 second' },
-  { value: 5000, label: '5 seconds' },
-  { value: 10000, label: '10 seconds' },
-  { value: 30000, label: '30 seconds' },
-  { value: 60000, label: '1 minute' },
-  { value: 300000, label: '5 minutes' },
-  { value: 600000, label: '10 minutes' },
-  { value: 900000, label: '15 minutes' },
-  { value: 1800000, label: '30 minutes' },
-];
+/**
+ * Simple Sparkline Component
+ * Renders a mini line chart from data array
+ */
+const Sparkline = memo(({ data, color = '#3b82f6' }: { data: number[]; color?: string }) => {
+  if (!data || data.length === 0) {
+    return <div className="w-full h-12" />;
+  }
+
+  const width = 120;
+  const height = 40;
+  const padding = 2;
+
+  const max = Math.max(...data, 0.1); // Prevent division by zero
+  const min = Math.min(...data, 0);
+  const range = max - min || 1;
+
+  const points = data.map((value, index) => {
+    const x = (index / (data.length - 1 || 1)) * (width - padding * 2) + padding;
+    const y = height - padding - ((value - min) / range) * (height - padding * 2);
+    return `${x},${y}`;
+  }).join(' ');
+
+  return (
+    <svg width={width} height={height} className="overflow-visible">
+      <polyline
+        points={points}
+        fill="none"
+        stroke={color}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+});
+
+Sparkline.displayName = 'Sparkline';
 
 /**
- * Activity Card with ATOMIC UPDATE PATTERN
+ * Activity Card with ATOMIC UPDATE PATTERN + Sparkline
  *
  * Enterprise-grade zero-flicker implementation:
  * - Renders ONCE with initial values
  * - Never re-renders (fully memoized)
  * - DOM text nodes updated directly via refs
- * - Fixed min-height (110px) prevents layout shifts
- * - Tabular numbers for consistent width
- * - This is how Hevo, Fivetran, Airbyte work
+ * - Fixed min-height prevents layout shifts
+ * - Includes mini sparkline graph
  */
 const ActivityCard = memo(({
   icon: Icon,
@@ -70,7 +96,9 @@ const ActivityCard = memo(({
   totalRef,
   rateRef,
   initialTotal,
-  initialRate
+  initialRate,
+  sparklineData,
+  color
 }: {
   icon: any;
   label: string;
@@ -78,29 +106,35 @@ const ActivityCard = memo(({
   rateRef: React.RefObject<HTMLSpanElement>;
   initialTotal: number;
   initialRate: number;
+  sparklineData: number[];
+  color: string;
 }) => {
-  // Component renders ONCE with initial values
-  // Never re-renders - DOM updated directly via refs from parent
   return (
     <div
-      className="p-3 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700"
+      className="flex-1 p-4 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700"
       style={{
-        minHeight: '110px',  // CRITICAL: Stable layout - prevents height shifts
-        contain: 'layout',   // CSS containment for performance
+        minHeight: '140px',
+        contain: 'layout',
       }}
     >
-      <div className="flex items-center gap-2 mb-2">
+      <div className="flex items-center gap-2 mb-3">
         <Icon className="w-4 h-4 text-gray-400" />
-        <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">{label}</span>
+        <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">{label}</span>
       </div>
+
       <div
         ref={totalRef}
-        className="text-3xl font-bold text-blue-600 dark:text-blue-400 tabular-nums min-w-[80px]"
+        className="text-3xl font-bold text-gray-900 dark:text-gray-100 tabular-nums mb-2"
       >
         {formatNumber(initialTotal)}
       </div>
-      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 flex items-center gap-1 tabular-nums">
-        <Info className="w-3 h-3" />
+
+      <div className="mb-2">
+        <Sparkline data={sparklineData} color={color} />
+      </div>
+
+      <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 tabular-nums">
+        <Clock className="w-3 h-3" />
         <span ref={rateRef}>{formatRate(initialRate)}</span> epm
       </div>
     </div>
@@ -110,6 +144,27 @@ const ActivityCard = memo(({
 ActivityCard.displayName = 'ActivityCard';
 
 /**
+ * Arrow Component
+ */
+const Arrow = memo(() => (
+  <div className="flex items-center justify-center px-2">
+    <ArrowRight className="w-6 h-6 text-gray-400 dark:text-gray-600" />
+  </div>
+));
+
+Arrow.displayName = 'Arrow';
+
+/**
+ * Clock icon for rate display
+ */
+const Clock = ({ className }: { className: string }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <circle cx="12" cy="12" r="10" strokeWidth="2" />
+    <path strokeWidth="2" d="M12 6v6l4 2" />
+  </svg>
+);
+
+/**
  * Pipeline Activity Component with ATOMIC UPDATE PATTERN
  *
  * Enterprise-grade implementation:
@@ -117,12 +172,13 @@ ActivityCard.displayName = 'ActivityCard';
  * 2. Atomic State Update - DOM text nodes updated directly via refs
  * 3. Stable layout (fixed heights) to prevent flicker
  * 4. Component NEVER re-renders when data updates
+ * 5. Time range selector (2h, 12h, 24h)
+ * 6. Mini sparkline graphs for visual activity
  *
  * Flow:
  * React Query → lastDataRef → compare → direct DOM update
  *
  * Result: ZERO flicker even with 1-second polling!
- * This is how Hevo, Fivetran, Airbyte, Materialize work.
  */
 export const PipelineActivity = memo(function PipelineActivity({
   pipelineId,
@@ -131,11 +187,14 @@ export const PipelineActivity = memo(function PipelineActivity({
   onRefreshIntervalChange,
   onManualRefresh,
 }: PipelineActivityProps) {
+  const [timeRange, setTimeRange] = useState<TimeRange>('24h');
+
   // React Query hook - polls in background
   const { data: activity, isLoading, isFetching, refetch } = usePipelineActivity({
     pipelineId,
     enabled: pipelineStatus === 'running' || pipelineStatus === 'paused',
     refetchInterval: refreshInterval,
+    timeRange,
   });
 
   // === ATOMIC UPDATE REFS ===
@@ -223,22 +282,41 @@ export const PipelineActivity = memo(function PipelineActivity({
     <div>
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Pipeline Activity</h3>
-        <button
-          onClick={() => {
-            refetch();
-            if (onManualRefresh) {
-              onManualRefresh();
-            }
-          }}
-          className="p-1.5 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-          title="Refresh now"
-        >
-          <RotateCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
-        </button>
+        <div className="flex items-center gap-3">
+          {/* Time Range Selector */}
+          <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+            {(['2h', '12h', '24h'] as TimeRange[]).map((range) => (
+              <button
+                key={range}
+                onClick={() => setTimeRange(range)}
+                className={`px-3 py-1 text-sm font-medium rounded transition-colors ${
+                  timeRange === range
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
+                }`}
+              >
+                {range}
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={() => {
+              refetch();
+              if (onManualRefresh) {
+                onManualRefresh();
+              }
+            }}
+            className="p-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+            title="Refresh now"
+          >
+            <RotateCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
       </div>
 
-      {/* Activity Cards Grid with ATOMIC UPDATE PATTERN */}
-      <div className="grid grid-cols-4 gap-6">
+      {/* Activity Cards with Arrows - Horizontal Layout */}
+      <div className="flex items-center">
         <ActivityCard
           icon={Database}
           label="INGESTION"
@@ -246,7 +324,10 @@ export const PipelineActivity = memo(function PipelineActivity({
           rateRef={ingestionRateRef}
           initialTotal={activity.ingestion.total}
           initialRate={activity.ingestion.rate}
+          sparklineData={activity.ingestion.sparkline || []}
+          color="#3b82f6"
         />
+        <Arrow />
         <ActivityCard
           icon={Settings2}
           label="TRANSFORMATIONS"
@@ -254,7 +335,10 @@ export const PipelineActivity = memo(function PipelineActivity({
           rateRef={transformationsRateRef}
           initialTotal={activity.transformations.total}
           initialRate={activity.transformations.rate}
+          sparklineData={activity.transformations.sparkline || []}
+          color="#8b5cf6"
         />
+        <Arrow />
         <ActivityCard
           icon={Database}
           label="SCHEMA MAPPER"
@@ -262,7 +346,10 @@ export const PipelineActivity = memo(function PipelineActivity({
           rateRef={schemaRateRef}
           initialTotal={activity.schemaMapper.total}
           initialRate={activity.schemaMapper.rate}
+          sparklineData={activity.schemaMapper.sparkline || []}
+          color="#ec4899"
         />
+        <Arrow />
         <ActivityCard
           icon={TrendingUp}
           label="LOAD"
@@ -270,6 +357,8 @@ export const PipelineActivity = memo(function PipelineActivity({
           rateRef={loadRateRef}
           initialTotal={activity.load.total}
           initialRate={activity.load.rate}
+          sparklineData={activity.load.sparkline || []}
+          color="#10b981"
         />
       </div>
     </div>

@@ -76,7 +76,7 @@ export function PipelineDetailPage() {
   const { logActivity } = useAuth();
 
   const [activeTab, setActiveTab] = useState<TabType>('objects');
-  const [activeLogsView, setActiveLogsView] = useState<'logs' | 'dlq' | 'timeline' | 'alerts'>('logs');
+  const [activeLogsView, setActiveLogsView] = useState<'dlq' | 'timeline' | 'alerts'>('timeline');
   const [logsSearchQuery, setLogsSearchQuery] = useState('');
   const [logsSeverityFilter, setLogsSeverityFilter] = useState<string>('all');
   const [showMenu, setShowMenu] = useState(false);
@@ -841,7 +841,7 @@ export function PipelineDetailPage() {
   const tabs = [
     ...(pipeline.deleted_at ? [] : [{ id: 'objects' as TabType, label: 'Objects', icon: Database }]),
     { id: 'monitoring' as TabType, label: 'Monitoring', icon: TrendingUp },
-    { id: 'logs' as TabType, label: 'Logs', icon: FileText },
+    { id: 'logs' as TabType, label: 'Issue Monitoring', icon: FileText },
     { id: 'settings' as TabType, label: 'Settings', icon: Settings },
   ];
 
@@ -1179,16 +1179,6 @@ export function PipelineDetailPage() {
           <div className="sticky top-[72px] z-20 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-8 py-4">
             <div className="flex gap-2">
               <button
-                onClick={() => setActiveLogsView('logs')}
-                className={`px-4 py-2 font-medium transition-colors ${
-                  activeLogsView === 'logs'
-                    ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400'
-                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-                }`}
-              >
-                Logs
-              </button>
-              <button
                 onClick={() => setActiveLogsView('timeline')}
                 className={`px-4 py-2 font-medium transition-colors ${
                   activeLogsView === 'timeline'
@@ -1225,47 +1215,6 @@ export function PipelineDetailPage() {
               </button>
             </div>
           </div>
-
-          {/* Search Bar - Only show for logs view */}
-          {activeLogsView === 'logs' && (
-            <div className="sticky top-[140px] z-10 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-8 py-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-                    <input
-                      type="text"
-                      placeholder="Search logs..."
-                      value={logsSearchQuery}
-                      onChange={(e) => setLogsSearchQuery(e.target.value)}
-                      className="pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-                    />
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <Filter className="w-5 h-5 text-gray-400" />
-                    <select
-                      value={logsSeverityFilter}
-                      onChange={(e) => setLogsSeverityFilter(e.target.value)}
-                      className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-                    >
-                      <option value="all">All Levels</option>
-                      <option value="error">Error</option>
-                      <option value="warn">Warning</option>
-                      <option value="info">Info</option>
-                    </select>
-                  </div>
-                </div>
-
-                <button
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
-                >
-                  <Download className="w-4 h-4" />
-                  Download Logs
-                </button>
-              </div>
-            </div>
-          )}
         </>
       )}
 
@@ -1278,7 +1227,7 @@ export function PipelineDetailPage() {
             isActive={activeTab === 'monitoring' && pipeline?.status === 'running'}
           />
         )}
-        {activeTab === 'logs' && <LogsTab pipelineId={pipeline.id} pipelineStatus={pipeline.status} activeView={activeLogsView} searchQuery={logsSearchQuery} severityFilter={logsSeverityFilter} />}
+        {activeTab === 'logs' && <LogsTab pipelineId={pipeline.id} pipelineStatus={pipeline.status} activeView={activeLogsView} searchQuery="" severityFilter="all" />}
         {activeTab === 'settings' && <SettingsTab pipeline={pipeline} onUpdate={refetchPipeline} />}
       </div>
 

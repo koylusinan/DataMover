@@ -24,6 +24,7 @@ class MonitoringService {
   constructor() {
     this.previousMetrics = new Map(); // Store previous values for comparison
     this.pauseTracking = new Map(); // Track when connectors were paused
+    this.walCheckTracking = new Map(); // Track last WAL check time for each pipeline
     this.isRunning = false;
     this.thresholds = {
       // Default values (will be overridden from database)
@@ -157,6 +158,10 @@ class MonitoringService {
         await this.checkDLQ(client, pipeline, sourceConnector.name);
         await this.checkErrorRate(client, pipeline, sourceConnector.name);
       }
+
+      // Check 6: WAL Size (Log Monitoring) - for all pipelines (running or paused)
+      // Check if enough time has passed based on pipeline's wal_check_interval_seconds
+      await this.checkWALSizeIfDue(client, pipeline);
     } catch (error) {
       console.error(`❌ Error checking pipeline ${pipeline.name}:`, error.message);
     }
@@ -413,6 +418,261 @@ class MonitoringService {
       }
     } catch (error) {
       console.error(`Error checking error rate for ${connectorName}:`, error.message);
+    }
+  }
+
+  /**
+   * Check if WAL size check is due based on pipeline-specific interval
+   */
+  async checkWALSizeIfDue(client, pipeline) {
+    try {
+      // Get pipeline's WAL check interval setting
+      const intervalResult = await client.query(
+        `SELECT wal_check_interval_seconds FROM pipelines WHERE id = $1`,
+        [pipeline.id]
+      );
+
+      if (intervalResult.rows.length === 0) return;
+
+      const checkIntervalSeconds = intervalResult.rows[0].wal_check_interval_seconds || 60;
+      const now = Date.now();
+      const lastCheck = this.walCheckTracking.get(pipeline.id) || 0;
+      const elapsedSeconds = (now - lastCheck) / 1000;
+
+      // Check if enough time has passed
+      if (elapsedSeconds >= checkIntervalSeconds) {
+        await this.checkWALSize(client, pipeline);
+        // Update last check time
+        this.walCheckTracking.set(pipeline.id, now);
+      }
+    } catch (error) {
+      console.error(`Error checking WAL due time for pipeline ${pipeline.name}:`, error.message);
+    }
+  }
+
+  /**
+   * Check 6: WAL Size (Log Monitoring)
+   */
+  async checkWALSize(client, pipeline) {
+    try {
+      // Get pipeline log monitoring settings
+      const settingsResult = await client.query(
+        `SELECT source_type, source_config, enable_log_monitoring, max_wal_size,
+                alert_threshold, log_monitoring_slack
+         FROM pipelines
+         WHERE id = $1`,
+        [pipeline.id]
+      );
+
+      if (settingsResult.rows.length === 0) return;
+
+      const settings = settingsResult.rows[0];
+
+      // Only check for PostgreSQL sources with log monitoring enabled
+      if (settings.source_type !== 'postgres' || !settings.enable_log_monitoring) {
+        return;
+      }
+
+      const sourceConfig = settings.source_config;
+      const maxWalSizeMB = settings.max_wal_size || 1024;
+      const alertThresholdPercent = settings.alert_threshold || 80;
+      const thresholdMB = (maxWalSizeMB * alertThresholdPercent) / 100;
+
+      // Get slot name from connector config
+      const connectorResult = await client.query(
+        `SELECT config FROM pipeline_connectors
+         WHERE pipeline_id = $1 AND type = 'source'`,
+        [pipeline.id]
+      );
+
+      if (connectorResult.rows.length === 0) return;
+
+      const connectorConfig = connectorResult.rows[0].config;
+      const slotName = connectorConfig.snapshot_config?.['slot.name'] ||
+                       connectorConfig['slot.name'] ||
+                       `${pipeline.name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}_slot`;
+
+      // Ensure password is a string (handle encrypted/buffer passwords)
+      let password = '';
+      if (sourceConfig.password) {
+        if (typeof sourceConfig.password === 'string') {
+          password = sourceConfig.password;
+        } else if (Buffer.isBuffer(sourceConfig.password)) {
+          password = sourceConfig.password.toString('utf8');
+        } else if (typeof sourceConfig.password === 'object') {
+          password = JSON.stringify(sourceConfig.password);
+        }
+      }
+
+      // Connect to source PostgreSQL and check WAL size
+      const sourcePool = new PgPool({
+        host: sourceConfig.host,
+        port: sourceConfig.port || 5432,
+        database: sourceConfig.database_name,
+        user: sourceConfig.username,
+        password: password,
+        ssl: sourceConfig.ssl ? { rejectUnauthorized: false } : false,
+        connectionTimeoutMillis: 5000,
+      });
+
+      let sourceClient;
+      try {
+        sourceClient = await sourcePool.connect();
+
+        // Query WAL size for the replication slot
+        const walResult = await sourceClient.query(`
+          SELECT
+            slot_name,
+            COALESCE(
+              pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn) / (1024 * 1024),
+              0
+            ) as wal_size_mb
+          FROM pg_replication_slots
+          WHERE slot_name = $1
+        `, [slotName]);
+
+        if (walResult.rows.length === 0) {
+          console.log(`📊 No replication slot found for pipeline ${pipeline.name} (slot: ${slotName})`);
+          return;
+        }
+
+        const walSizeMB = parseFloat(walResult.rows[0].wal_size_mb);
+
+        console.log(`📊 WAL Size for ${pipeline.name}: ${walSizeMB.toFixed(2)} MB (threshold: ${thresholdMB.toFixed(2)} MB)`);
+
+        // Check if WAL size exceeds threshold
+        if (walSizeMB > thresholdMB) {
+          await this.createAlert(client, {
+            pipeline_id: pipeline.id,
+            alert_type: 'WAL_SIZE_EXCEEDED',
+            severity: 'warning',
+            message: `WAL size ${walSizeMB.toFixed(2)} MB exceeds threshold ${thresholdMB.toFixed(2)} MB (${alertThresholdPercent}% of ${maxWalSizeMB} MB)`,
+            metadata: {
+              wal_size_mb: walSizeMB,
+              threshold_mb: thresholdMB,
+              max_wal_size_mb: maxWalSizeMB,
+              alert_threshold_percent: alertThresholdPercent,
+              slot_name: slotName,
+              source_host: sourceConfig.host,
+              source_database: sourceConfig.database_name
+            }
+          });
+
+          // Send Slack notification if enabled
+          if (settings.log_monitoring_slack) {
+            await this.sendWALSlackNotification(client, pipeline, {
+              walSizeMB,
+              thresholdMB,
+              maxWalSizeMB,
+              alertThresholdPercent,
+              slotName,
+              sourceHost: sourceConfig.host,
+              sourceDatabase: sourceConfig.database_name
+            });
+          }
+        }
+      } finally {
+        if (sourceClient) sourceClient.release();
+        await sourcePool.end();
+      }
+    } catch (error) {
+      console.error(`Error checking WAL size for pipeline ${pipeline.name}:`, error.message);
+    }
+  }
+
+  /**
+   * Send Slack notification for WAL size alert
+   */
+  async sendWALSlackNotification(client, pipeline, walInfo) {
+    try {
+      // Get pipeline's Slack channels
+      const channelsResult = await client.query(
+        `SELECT sc.webhook_url, sc.channel_name
+         FROM pipeline_slack_channels psc
+         JOIN slack_integrations sc ON psc.slack_channel_id = sc.id
+         WHERE psc.pipeline_id = $1 AND sc.is_active = true`,
+        [pipeline.id]
+      );
+
+      if (channelsResult.rows.length === 0) {
+        console.log(`⚠️  No active Slack channels for pipeline ${pipeline.name}`);
+        return;
+      }
+
+      const message = {
+        text: `⚠️ *WAL Size Alert* - ${pipeline.name}`,
+        blocks: [
+          {
+            type: "header",
+            text: {
+              type: "plain_text",
+              text: `⚠️ WAL Size Alert - ${pipeline.name}`,
+              emoji: true
+            }
+          },
+          {
+            type: "section",
+            fields: [
+              {
+                type: "mrkdwn",
+                text: `*Current WAL Size:*\n${walInfo.walSizeMB.toFixed(2)} MB`
+              },
+              {
+                type: "mrkdwn",
+                text: `*Threshold:*\n${walInfo.thresholdMB.toFixed(2)} MB (${walInfo.alertThresholdPercent}%)`
+              },
+              {
+                type: "mrkdwn",
+                text: `*Max WAL Size:*\n${walInfo.maxWalSizeMB} MB`
+              },
+              {
+                type: "mrkdwn",
+                text: `*Source:*\n${walInfo.sourceHost}/${walInfo.sourceDatabase}`
+              }
+            ]
+          },
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: `*Replication Slot:* \`${walInfo.slotName}\`\n\n*Action needed:* Check replication lag or increase max WAL size limit.`
+            }
+          },
+          {
+            type: "context",
+            elements: [
+              {
+                type: "mrkdwn",
+                text: `🕐 ${new Date().toLocaleString()}`
+              }
+            ]
+          }
+        ]
+      };
+
+      // Send to all configured Slack channels
+      for (const channel of channelsResult.rows) {
+        try {
+          const response = await fetch('http://127.0.0.1:5002/api/slack/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              webhookUrl: channel.webhook_url,
+              message
+            })
+          });
+
+          if (response.ok) {
+            console.log(`✅ Slack notification sent to ${channel.channel_name} for WAL alert`);
+          } else {
+            console.error(`❌ Failed to send Slack notification to ${channel.channel_name}`);
+          }
+        } catch (error) {
+          console.error(`Error sending Slack notification to ${channel.channel_name}:`, error.message);
+        }
+      }
+    } catch (error) {
+      console.error('Error sending WAL Slack notifications:', error.message);
     }
   }
 

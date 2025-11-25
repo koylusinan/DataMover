@@ -1,16 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Search, Download, AlertTriangle, Info, AlertCircle, CheckCircle, Filter, ChevronRight, BellRing, X } from 'lucide-react';
+import { Download, AlertTriangle, AlertCircle, CheckCircle, BellRing, X } from 'lucide-react';
 import { usePipelineAlerts, resolveAlert, getAlertSeverityColor, getAlertTypeDisplayName } from '../../hooks/useAlerts';
 import { useQueryClient } from '@tanstack/react-query';
-
-interface LogEntry {
-  id: string;
-  timestamp: string;
-  severity: 'error' | 'warn' | 'info';
-  message: string;
-  context?: Record<string, unknown>;
-  workerId?: string;
-}
 
 interface DLQRecord {
   id: string;
@@ -55,51 +46,18 @@ const mockDLQRecords: DLQRecord[] = [
 interface LogsTabProps {
   pipelineId: string;
   pipelineStatus?: string;
-  activeView: 'logs' | 'dlq' | 'timeline' | 'alerts';
+  activeView: 'dlq' | 'timeline' | 'alerts';
   searchQuery: string;
   severityFilter: string;
 }
 
-export function LogsTab({ pipelineId, pipelineStatus, activeView, searchQuery, severityFilter }: LogsTabProps) {
-  const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
+export function LogsTab({ pipelineId, pipelineStatus, activeView }: LogsTabProps) {
   const [stateChanges, setStateChanges] = useState<StateChange[]>([]);
-  const [loading, setLoading] = useState(false);
   const [alertErrors, setAlertErrors] = useState<Record<string, string>>({});
   const queryClient = useQueryClient();
 
   // Fetch pipeline alerts (both resolved and unresolved)
   const { data: alerts = [] } = usePipelineAlerts(pipelineId, { refetchInterval: 10000 });
-
-  // Fetch logs from backend
-  const fetchLogs = async (silent = false) => {
-    if (!silent) {
-      setLoading(true);
-    }
-
-    const backendUrl = import.meta.env.VITE_DEBEZIUM_BACKEND_URL;
-    if (!backendUrl) {
-      console.error('Debezium Backend URL not configured');
-      setLoading(false);
-      return;
-    }
-
-    try {
-      const response = await fetch(`${backendUrl}/api/pipelines/${pipelineId}/logs`);
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success && Array.isArray(data.logs)) {
-          setLogs(data.logs);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to fetch logs:', error);
-    } finally {
-      if (!silent) {
-        setLoading(false);
-      }
-    }
-  };
 
   // Fetch state changes from backend
   const fetchStateChanges = async (silent = false) => {
@@ -124,7 +82,6 @@ export function LogsTab({ pipelineId, pipelineStatus, activeView, searchQuery, s
 
   // Initial fetch
   useEffect(() => {
-    fetchLogs();
     fetchStateChanges();
   }, [pipelineId]);
 
@@ -134,38 +91,11 @@ export function LogsTab({ pipelineId, pipelineStatus, activeView, searchQuery, s
     if (pipelineStatus === 'stopped' || pipelineStatus === 'deleted') return;
 
     const interval = setInterval(() => {
-      fetchLogs(true); // Silent refresh
       fetchStateChanges(true);
     }, 5000);
 
     return () => clearInterval(interval);
   }, [pipelineStatus, pipelineId]);
-
-  const getSeverityIcon = (severity: string) => {
-    switch (severity) {
-      case 'error':
-        return <AlertCircle className="w-5 h-5 text-red-500" />;
-      case 'warn':
-        return <AlertTriangle className="w-5 h-5 text-yellow-500" />;
-      case 'info':
-        return <Info className="w-5 h-5 text-blue-500" />;
-      default:
-        return <Info className="w-5 h-5 text-gray-500" />;
-    }
-  };
-
-  const getSeverityColor = (severity: string) => {
-    switch (severity) {
-      case 'error':
-        return 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800';
-      case 'warn':
-        return 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800';
-      case 'info':
-        return 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800';
-      default:
-        return 'bg-gray-50 dark:bg-gray-900/20 border-gray-200 dark:border-gray-700';
-    }
-  };
 
   const formatTimestamp = (timestamp: string) => {
     const date = new Date(timestamp);
@@ -178,73 +108,8 @@ export function LogsTab({ pipelineId, pipelineStatus, activeView, searchQuery, s
     });
   };
 
-  const downloadLogs = () => {
-    const logsToDownload = filteredLogs.length > 0 ? filteredLogs : logs;
-    const logsText = logsToDownload
-      .map((log) => {
-        return `[${formatTimestamp(log.timestamp)}] [${log.severity.toUpperCase()}] ${log.message}${
-          log.workerId ? ` (Worker: ${log.workerId})` : ''
-        }${log.context ? `\nContext: ${JSON.stringify(log.context)}` : ''}`;
-      })
-      .join('\n\n');
-
-    const blob = new Blob([logsText], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `pipeline-${pipelineId}-logs-${new Date().toISOString().split('T')[0]}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  const filteredLogs = logs.filter((log) => {
-    const matchesSearch = log.message.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesSeverity = severityFilter === 'all' || log.severity === severityFilter;
-    return matchesSearch && matchesSeverity;
-  });
-
   return (
     <div className="space-y-6">
-      {activeView === 'logs' && (
-        <>
-          <div className="space-y-3">
-            {filteredLogs.map((log) => (
-              <div
-                key={log.id}
-                onClick={() => setSelectedLog(log)}
-                className={`border rounded-lg p-4 cursor-pointer hover:shadow-md transition-all ${getSeverityColor(log.severity)}`}
-              >
-                <div className="flex items-start gap-3">
-                  {getSeverityIcon(log.severity)}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm font-medium text-gray-900 dark:text-gray-100 uppercase">
-                        {log.severity}
-                      </span>
-                      <span className="text-xs text-gray-600 dark:text-gray-400">
-                        {formatTimestamp(log.timestamp)}
-                      </span>
-                    </div>
-                    <p className="text-sm text-gray-800 dark:text-gray-200">{log.message}</p>
-                    {log.workerId && (
-                      <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">Worker: {log.workerId}</p>
-                    )}
-                    {log.context && (
-                      <button className="text-xs text-blue-600 dark:text-blue-400 mt-2 hover:underline flex items-center gap-1">
-                        View context
-                        <ChevronRight className="w-3 h-3" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-
       {activeView === 'timeline' && (
         <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-6">State Changes</h3>
@@ -476,43 +341,6 @@ export function LogsTab({ pipelineId, pipelineStatus, activeView, searchQuery, s
             </div>
           )}
         </div>
-      )}
-
-      {selectedLog && (
-        <>
-          <div className="fixed inset-0 bg-black bg-opacity-50 z-40" onClick={() => setSelectedLog(null)} />
-          <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-full max-w-2xl bg-white dark:bg-gray-800 rounded-lg shadow-xl z-50">
-            <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">Log Details</h3>
-                <button
-                  onClick={() => setSelectedLog(null)}
-                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
-            <div className="p-6 space-y-4">
-              <div>
-                <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Message</div>
-                <p className="text-sm text-gray-900 dark:text-gray-100">{selectedLog.message}</p>
-              </div>
-              <div>
-                <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Timestamp</div>
-                <p className="text-sm text-gray-900 dark:text-gray-100">{formatTimestamp(selectedLog.timestamp)}</p>
-              </div>
-              {selectedLog.context && (
-                <div>
-                  <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">Context</div>
-                  <pre className="bg-gray-50 dark:bg-gray-900 p-4 rounded-lg text-xs text-gray-900 dark:text-gray-100 overflow-auto">
-                    {JSON.stringify(selectedLog.context, null, 2)}
-                  </pre>
-                </div>
-              )}
-            </div>
-          </div>
-        </>
       )}
     </div>
   );

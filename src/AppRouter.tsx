@@ -6,6 +6,7 @@ import { PipelinesPage } from './pages/PipelinesPage';
 import { PipelineDetailPage } from './pages/PipelineDetailPage';
 import { ModelsPage } from './pages/ModelsPage';
 import { DestinationsPage } from './pages/DestinationsPage';
+import { MonitoringDashboardPage } from './pages/MonitoringDashboardPage';
 import { DocsPage } from './pages/DocsPage';
 import { LoginPage } from './pages/LoginPage';
 import { SignupPage } from './pages/SignupPage';
@@ -38,6 +39,7 @@ function MainLayout() {
                       <Route path="/pipelines/:id" element={<PipelineDetailPage />} />
                       <Route path="/models" element={<ModelsPage />} />
                       <Route path="/destinations" element={<DestinationsPage />} />
+                      <Route path="/monitoring" element={<MonitoringDashboardPage />} />
                       <Route path="/docs" element={<DocsPage />} />
                       <Route
                         path="/admin"

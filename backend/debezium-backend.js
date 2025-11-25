@@ -6,6 +6,8 @@ import { Kafka } from 'kafkajs';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { startCleanupService } from './pipeline-cleanup-service.js';
+import { initRedis, getCached, setCached, isRedisConnected } from './redis-cache.js';
+import { createTimeSeriesEndpoint } from './monitoring-timeseries-endpoint.js';
 
 const execAsync = promisify(exec);
 // Monitoring service is now run as a separate process (start-monitoring.js)
@@ -98,6 +100,11 @@ const server = Fastify({ logger: true });
 
 await server.register(cors, {
   origin: ALLOWED_ORIGINS ? ALLOWED_ORIGINS.split(',').map((origin) => origin.trim()) : true,
+});
+
+// Initialize Redis (non-blocking, optional feature)
+initRedis().catch((err) => {
+  console.warn('⚠️ Redis initialization failed (continuing without cache):', err.message);
 });
 
 // ----------------------------------------------------------------------------
@@ -975,7 +982,7 @@ server.get('/api/pipelines/:id/activity', async (req, reply) => {
         const sourceConnector = connectors.find(c => c.type === 'source');
         const sinkConnector = connectors.find(c => c.type === 'sink');
 
-        // Helper function to query Prometheus
+        // Helper function to query Prometheus (instant)
         async function queryPrometheus(metric, connectorName) {
             try {
                 const query = `${metric}{connector="${connectorName}"}`;
@@ -1001,7 +1008,49 @@ server.get('/api/pipelines/:id/activity', async (req, reply) => {
             }
         }
 
+        // Helper function to query Prometheus range (for sparklines)
+        async function queryPrometheusRange(metric, connectorName, timeRange) {
+            try {
+                // Map timeRange to duration
+                const durationMap = { '2h': '2h', '12h': '12h', '24h': '24h' };
+                const duration = durationMap[timeRange] || '24h';
+
+                // Calculate step (interval between data points) - aim for ~20-30 points
+                const stepMap = { '2h': '6m', '12h': '30m', '24h': '60m' };
+                const step = stepMap[timeRange] || '60m';
+
+                const query = `${metric}{connector="${connectorName}"}`;
+                const url = `${PROMETHEUS_URL}/api/v1/query_range?query=${encodeURIComponent(query)}&start=${Date.now()/1000 - parseDuration(duration)}&end=${Date.now()/1000}&step=${step}`;
+                const response = await fetch(url);
+
+                if (!response.ok) {
+                    return [];
+                }
+
+                const data = await response.json();
+                if (data.status === 'success' && data.data.result.length > 0) {
+                    // Get first result's values (time series)
+                    const values = data.data.result[0]?.values || [];
+                    return values.map(([timestamp, value]) => parseFloat(value));
+                }
+                return [];
+            } catch (error) {
+                console.error(`Failed to query Prometheus range for ${metric}:`, error.message);
+                return [];
+            }
+        }
+
+        // Helper to parse duration to seconds
+        function parseDuration(duration) {
+            const match = duration.match(/^(\d+)([hm])$/);
+            if (!match) return 3600; // Default 1 hour
+            const value = parseInt(match[1]);
+            const unit = match[2];
+            return unit === 'h' ? value * 3600 : value * 60;
+        }
+
         // Fetch metrics from Prometheus
+        const timeRange = req.query.timeRange || '24h';
         let sourcePollTotal = 0;
         let sourcePollRate = 0;
         let sourceWriteTotal = 0;
@@ -1009,19 +1058,27 @@ server.get('/api/pipelines/:id/activity', async (req, reply) => {
         let sinkSendTotal = 0;
         let sinkSendRate = 0;
 
+        // Sparkline data
+        let sourcePollSparkline = [];
+        let sourceWriteSparkline = [];
+        let sinkSendSparkline = [];
+
         if (sourceConnector) {
-            [sourcePollTotal, sourcePollRate, sourceWriteTotal, sourceWriteRate] = await Promise.all([
+            [sourcePollTotal, sourcePollRate, sourceWriteTotal, sourceWriteRate, sourcePollSparkline, sourceWriteSparkline] = await Promise.all([
                 queryPrometheus('kafka_connect_source_task_metrics_source_record_poll_total', sourceConnector.name),
                 queryPrometheus('kafka_connect_source_task_metrics_source_record_poll_rate', sourceConnector.name),
                 queryPrometheus('kafka_connect_source_task_metrics_source_record_write_total', sourceConnector.name),
-                queryPrometheus('kafka_connect_source_task_metrics_source_record_write_rate', sourceConnector.name)
+                queryPrometheus('kafka_connect_source_task_metrics_source_record_write_rate', sourceConnector.name),
+                queryPrometheusRange('kafka_connect_source_task_metrics_source_record_poll_rate', sourceConnector.name, timeRange),
+                queryPrometheusRange('kafka_connect_source_task_metrics_source_record_write_rate', sourceConnector.name, timeRange)
             ]);
         }
 
         if (sinkConnector) {
-            [sinkSendTotal, sinkSendRate] = await Promise.all([
+            [sinkSendTotal, sinkSendRate, sinkSendSparkline] = await Promise.all([
                 queryPrometheus('kafka_connect_sink_task_metrics_sink_record_send_total', sinkConnector.name),
-                queryPrometheus('kafka_connect_sink_task_metrics_sink_record_send_rate', sinkConnector.name)
+                queryPrometheus('kafka_connect_sink_task_metrics_sink_record_send_rate', sinkConnector.name),
+                queryPrometheusRange('kafka_connect_sink_task_metrics_sink_record_send_rate', sinkConnector.name, timeRange)
             ]);
         }
 
@@ -1032,23 +1089,27 @@ server.get('/api/pipelines/:id/activity', async (req, reply) => {
         const activity = {
             ingestion: {
                 total: sourcePollTotal,
-                rate: rateToEpm(sourcePollRate)
+                rate: rateToEpm(sourcePollRate),
+                sparkline: sourcePollSparkline
             },
             transformations: {
                 // CDC doesn't have separate transformation - use write metrics
                 total: sourceWriteTotal,
-                rate: rateToEpm(sourceWriteRate)
+                rate: rateToEpm(sourceWriteRate),
+                sparkline: sourceWriteSparkline
             },
             schemaMapper: {
                 // Schema changes tracked by Debezium - use write metrics
                 total: sourceWriteTotal,
-                rate: rateToEpm(sourceWriteRate)
+                rate: rateToEpm(sourceWriteRate),
+                sparkline: sourceWriteSparkline
             },
             load: {
                 total: sinkSendTotal,
-                rate: rateToEpm(sinkSendRate)
+                rate: rateToEpm(sinkSendRate),
+                sparkline: sinkSendSparkline
             },
-            timeRange: req.query.timeRange || '24h'
+            timeRange
         };
 
         return { success: true, activity };
@@ -1134,15 +1195,15 @@ server.get('/api/pipelines/:id/monitoring', async (req, reply) => {
         const taskCount = connectorStatus?.tasks?.length || 0;
         const runningTasks = connectorStatus?.tasks?.filter(t => t.state === 'RUNNING').length || 0;
 
-        // Get task-level metrics for detailed monitoring
+        // Get task-level metrics for detailed monitoring (SOURCE)
         const [taskPollRates, taskWriteRates, taskOffsetCommitSuccessRate] = await Promise.all([
             queryPrometheusPerTask('kafka_connect_source_task_metrics_source_record_poll_rate', sourceConnector.name),
             queryPrometheusPerTask('kafka_connect_source_task_metrics_source_record_write_rate', sourceConnector.name),
             queryPrometheusPerTask('kafka_connect_source_task_metrics_offset_commit_success_percentage', sourceConnector.name)
         ]);
 
-        // Calculate connector tasks health
-        const connectorTasks = taskPollRates.map((task, index) => {
+        // Calculate SOURCE connector tasks health
+        const sourceConnectorTasks = taskPollRates.map((task, index) => {
             const pollRate = task.value || 0;
             const writeRate = taskWriteRates.find(t => t.task === task.task)?.value || 0;
             const taskState = connectorStatus?.tasks?.find(t => t.id === parseInt(task.task))?.state || 'UNKNOWN';
@@ -1162,12 +1223,56 @@ server.get('/api/pipelines/:id/monitoring', async (req, reply) => {
             }
 
             return {
-                id: `Task ${task.task}`,
+                id: `${sourceConnector.name}-${task.task}`,
                 lag: `${lagMs}ms`,
                 status,
                 records: `${(pollRate * 60).toFixed(0)}/min`
             };
         });
+
+        // Get SINK connector tasks if sink exists
+        let sinkConnectorTasks = [];
+        if (sinkConnector) {
+            // Fetch sink connector status
+            const sinkStatusRes = await fetch(`${KAFKA_CONNECT_URL}/connectors/${sinkConnector.name}/status`);
+            const sinkConnectorStatus = sinkStatusRes.ok ? await sinkStatusRes.json() : null;
+
+            // Get sink task-level metrics
+            const [sinkTaskReadRates, sinkTaskSendRates] = await Promise.all([
+                queryPrometheusPerTask('kafka_connect_sink_task_metrics_sink_record_read_rate', sinkConnector.name),
+                queryPrometheusPerTask('kafka_connect_sink_task_metrics_sink_record_send_rate', sinkConnector.name)
+            ]);
+
+            sinkConnectorTasks = sinkTaskReadRates.map((task, index) => {
+                const readRate = task.value || 0;
+                const sendRate = sinkTaskSendRates.find(t => t.task === task.task)?.value || 0;
+                const taskState = sinkConnectorStatus?.tasks?.find(t => t.id === parseInt(task.task))?.state || 'UNKNOWN';
+
+                // Determine lag (simulated as difference between read and send rates)
+                const lag = Math.abs(readRate - sendRate) * 100; // Convert to ms estimate
+                const lagMs = lag.toFixed(0);
+
+                // Determine status based on lag and state
+                let status = 'healthy';
+                if (taskState !== 'RUNNING') {
+                    status = 'error';
+                } else if (lag > 2000) {
+                    status = 'error';
+                } else if (lag > 500) {
+                    status = 'warning';
+                }
+
+                return {
+                    id: `${sinkConnector.name}-${task.task}`,
+                    lag: `${lagMs}ms`,
+                    status,
+                    records: `${(readRate * 60).toFixed(0)}/min`
+                };
+            });
+        }
+
+        // Combine source and sink tasks
+        const connectorTasks = [...sourceConnectorTasks, ...sinkConnectorTasks];
 
         // Fetch metrics from Prometheus
         const [
@@ -2392,6 +2497,143 @@ server.get('/api/alerts/stats', async (req, reply) => {
     client.release();
   }
 });
+
+// Get stage details for a specific table
+server.get('/api/pipelines/:pipelineId/tables/:tableId/stages', async (req, reply) => {
+  const { pipelineId, tableId } = req.params;
+
+  try {
+    // Fetch table information to get schema and table name
+    const tableResult = await dbPool.query(
+      `SELECT schema_name, table_name FROM pipeline_objects WHERE id = $1 AND pipeline_id = $2`,
+      [tableId, pipelineId]
+    );
+
+    if (tableResult.rowCount === 0) {
+      return reply.code(404).send({ success: false, error: 'Table not found' });
+    }
+
+    const { schema_name, table_name } = tableResult.rows[0];
+
+    // Fetch source and sink connectors for this pipeline
+    const connectorsResult = await dbPool.query(
+      `SELECT name, type FROM pipeline_connectors WHERE pipeline_id = $1 ORDER BY type`,
+      [pipelineId]
+    );
+
+    const sourceConnector = connectorsResult.rows.find(c => c.type === 'source');
+    const sinkConnector = connectorsResult.rows.find(c => c.type === 'sink');
+
+    const stages = [];
+
+    // Helper function to query Prometheus
+    const queryPrometheus = async (query) => {
+      try {
+        const url = `${PROMETHEUS_URL}/api/v1/query?query=${encodeURIComponent(query)}`;
+        const response = await fetch(url);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.status === 'success' && data.data.result.length > 0) {
+            return parseFloat(data.data.result[0].value[1]) || 0;
+          }
+        }
+      } catch (error) {
+        server.log.warn({ err: error, query }, 'Failed to query Prometheus');
+      }
+      return 0;
+    };
+
+    // Helper function to calculate duration string
+    const formatDuration = (startTime) => {
+      const now = Date.now();
+      const durationMs = now - startTime;
+      const seconds = Math.floor(durationMs / 1000);
+      const minutes = Math.floor(seconds / 60);
+      const hours = Math.floor(minutes / 60);
+
+      if (hours > 0) {
+        return `${hours} hr ${minutes % 60} min`;
+      } else if (minutes > 0) {
+        return `${minutes} min ${seconds % 60} sec`;
+      } else {
+        return `${seconds} sec ${durationMs % 1000} ms`;
+      }
+    };
+
+    // INGEST STAGE (Source Connector)
+    if (sourceConnector) {
+      const ingestStartTime = Date.now() - (5 * 60 * 1000); // Default: 5 minutes ago
+
+      // Query Prometheus for Debezium source metrics
+      const totalEventsQuery = `debezium_metrics_TotalNumberOfEventsSeen{connector="${sourceConnector.name}",table="${schema_name}.${table_name}"}`;
+      const totalEvents = await queryPrometheus(totalEventsQuery);
+
+      // Query Kafka Connect metrics
+      const sourceRecordPollQuery = `kafka_connect_source_task_source_record_poll_total{connector=~"${sourceConnector.name}.*"}`;
+      const sourceRecordPoll = await queryPrometheus(sourceRecordPollQuery);
+
+      // For failed records, we can use error metrics if available
+      const errorQuery = `kafka_connect_source_task_source_record_poll_error_total{connector=~"${sourceConnector.name}.*"}`;
+      const failedRecords = await queryPrometheus(errorQuery);
+
+      stages.push({
+        name: 'Ingest',
+        startedAt: new Date(ingestStartTime).toISOString(),
+        duration: formatDuration(ingestStartTime),
+        input: Math.floor(totalEvents), // Events read from source DB
+        output: Math.floor(sourceRecordPoll), // Records sent to Kafka
+        failed: Math.floor(failedRecords),
+        status: failedRecords > 0 ? 'failed' : 'completed'
+      });
+    }
+
+    // LOAD STAGE (Sink Connector)
+    if (sinkConnector) {
+      const loadStartTime = Date.now() - (55 * 1000); // Default: 55 seconds ago
+
+      // Query Prometheus for sink metrics
+      const sinkRecordSendQuery = `kafka_connect_sink_task_sink_record_send_total{connector=~"${sinkConnector.name}.*"}`;
+      const sinkRecordSend = await queryPrometheus(sinkRecordSendQuery);
+
+      // For input, we can use the offset lag or consumer records
+      const sinkRecordReadQuery = `kafka_connect_sink_task_sink_record_read_total{connector=~"${sinkConnector.name}.*"}`;
+      const sinkRecordRead = await queryPrometheus(sinkRecordReadQuery);
+
+      // Failed sink records
+      const sinkErrorQuery = `kafka_connect_sink_task_sink_record_send_error_total{connector=~"${sinkConnector.name}.*"}`;
+      const failedSinkRecords = await queryPrometheus(sinkErrorQuery);
+
+      stages.push({
+        name: 'Load',
+        startedAt: new Date(loadStartTime).toISOString(),
+        duration: formatDuration(loadStartTime),
+        input: Math.floor(sinkRecordRead), // Records read from Kafka
+        output: Math.floor(sinkRecordSend), // Records written to destination
+        failed: Math.floor(failedSinkRecords),
+        status: failedSinkRecords > 0 ? 'failed' : 'completed'
+      });
+    }
+
+    // If no connectors found, return empty stages
+    if (stages.length === 0) {
+      return {
+        success: true,
+        stages: [],
+        message: 'No connectors found for this pipeline'
+      };
+    }
+
+    return { success: true, stages };
+  } catch (error) {
+    server.log.error({ err: error, pipelineId, tableId }, 'Failed to fetch table stages');
+    return reply.code(500).send({ success: false, error: error.message });
+  }
+});
+
+// ----------------------------------------------------------------------------
+// MONITORING TIME-SERIES ENDPOINT
+// ----------------------------------------------------------------------------
+createTimeSeriesEndpoint(server, PROMETHEUS_URL, getCached, setCached, isRedisConnected, dbPool);
 
 // ----------------------------------------------------------------------------
 // START SERVER

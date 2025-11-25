@@ -1,4 +1,4 @@
-import { Workflow, Box, Database, HelpCircle, Shield, User, LogOut, FlaskConical } from 'lucide-react';
+import { Workflow, Box, Database, Activity, HelpCircle, Shield, User, LogOut, FlaskConical } from 'lucide-react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useState } from 'react';
@@ -12,6 +12,7 @@ export function Sidebar() {
     { id: 'pipelines', label: 'Pipelines', icon: Workflow, path: '/pipelines' },
     { id: 'models', label: 'Models', icon: Box, path: '/models' },
     { id: 'destinations', label: 'Destinations', icon: Database, path: '/destinations' },
+    { id: 'monitoring', label: 'Monitoring', icon: Activity, path: '/monitoring' },
   ];
 
   const handleSignOut = async () => {

@@ -61,6 +61,7 @@ export interface PipelineProgress {
 export interface ActivityMetric {
   total: number;
   rate: number;
+  sparkline: number[];
 }
 
 export interface PipelineActivity {

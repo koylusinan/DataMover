@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Eye, EyeOff, Loader2, Info, ChevronDown, AlertTriangle, CheckCircle2, XCircle, X } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Info, ChevronDown, AlertTriangle, CheckCircle2, XCircle, X, MessageSquare } from 'lucide-react';
 import { CodeBlockWithCopy } from '../components/ui/CodeBlockWithCopy';
 import { useToast } from '../components/ui/Toast';
 import { ValidationResults } from '../components/ValidationResults';
@@ -34,6 +34,10 @@ interface SourceFormData {
   merge_tables: boolean;
   include_new_tables: boolean;
   drop_slot_on_stop: boolean;
+  enable_log_monitoring: boolean;
+  max_wal_size: number;
+  alert_threshold: number;
+  log_monitoring_slack: boolean;
 }
 
 function formatSourceConnectorName(name?: string) {
@@ -84,6 +88,10 @@ export function SourceConfigStep({ sourceType }: SourceConfigStepProps) {
     merge_tables: false,
     include_new_tables: false,
     drop_slot_on_stop: true,
+    enable_log_monitoring: false,
+    max_wal_size: 1024,
+    alert_threshold: 80,
+    log_monitoring_slack: false,
   });
 
   function mapSourceTypeToConnectionType(type: string): TestConnectionRequest['connectionType'] {
@@ -187,7 +195,7 @@ export function SourceConfigStep({ sourceType }: SourceConfigStepProps) {
     const checked = (e.target as HTMLInputElement).checked;
     setFormData((prev) => ({
       ...prev,
-      [name]: type === 'checkbox' ? checked : ['port', 'poll_interval', 'query_fetch_size', 'long_transaction_window'].includes(name) ? parseInt(value) || 0 : value,
+      [name]: type === 'checkbox' ? checked : ['port', 'poll_interval', 'query_fetch_size', 'long_transaction_window', 'max_wal_size', 'alert_threshold'].includes(name) ? parseInt(value) || 0 : value,
     }));
   };
 
@@ -344,6 +352,10 @@ export function SourceConfigStep({ sourceType }: SourceConfigStepProps) {
           ssl: formData.use_ssl,
         },
         status: 'draft',
+        enable_log_monitoring: formData.enable_log_monitoring,
+        max_wal_size: formData.max_wal_size,
+        alert_threshold: formData.alert_threshold,
+        log_monitoring_slack: formData.log_monitoring_slack,
       };
 
       const { data: pipeline, error } = await supabase
@@ -1020,6 +1032,98 @@ export function SourceConfigStep({ sourceType }: SourceConfigStepProps) {
               </div>
             </>
           )}
+
+          <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+            <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
+              <MessageSquare className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              Log Monitoring
+            </h4>
+
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+              <div className="space-y-4">
+                {/* Enable Log Monitoring Toggle */}
+                <label className="flex items-start gap-3 cursor-pointer group">
+                  <div className="relative inline-block w-11 h-6 mt-0.5">
+                    <input
+                      type="checkbox"
+                      name="enable_log_monitoring"
+                      checked={formData.enable_log_monitoring}
+                      onChange={handleChange}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 dark:bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-gray-900 dark:text-gray-100">Enable Log Monitoring</div>
+                    <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                      Enable or disable log monitoring for your Source
+                    </p>
+                  </div>
+                </label>
+
+                {/* Show configuration when enabled */}
+                {formData.enable_log_monitoring && (
+                  <div className="pl-14 space-y-4 border-t border-blue-200 dark:border-blue-800 pt-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">
+                          Max WAL Size (MB)
+                        </label>
+                        <input
+                          type="number"
+                          name="max_wal_size"
+                          value={formData.max_wal_size}
+                          onChange={handleChange}
+                          min="0"
+                          className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-gray-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">
+                          Alert Threshold (%)
+                        </label>
+                        <input
+                          type="number"
+                          name="alert_threshold"
+                          value={formData.alert_threshold}
+                          onChange={handleChange}
+                          min="0"
+                          max="100"
+                          className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-gray-100"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="checkbox"
+                        id="log-monitoring-slack"
+                        name="log_monitoring_slack"
+                        checked={formData.log_monitoring_slack}
+                        onChange={handleChange}
+                        className="mt-1 rounded"
+                      />
+                      <div className="flex-1">
+                        <label
+                          htmlFor="log-monitoring-slack"
+                          className="text-sm font-medium text-gray-900 dark:text-gray-100 cursor-pointer"
+                        >
+                          Send Slack Notifications
+                        </label>
+                        <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                          Receive alert notifications over Slack when the WAL size exceeds the specified alert threshold value
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-3 italic">
+                Note: This setting does not affect the connector configuration
+              </p>
+            </div>
+          </div>
 
           <div className="space-y-4 pt-6 border-t border-gray-200 dark:border-gray-700">
             <div className="flex gap-4">

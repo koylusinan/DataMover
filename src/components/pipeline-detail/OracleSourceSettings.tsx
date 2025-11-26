@@ -1,5 +1,7 @@
-import { useState } from 'react';
-import { ChevronDown, ChevronRight, Trash2, AlertTriangle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { ChevronDown, ChevronRight, Trash2, AlertTriangle, MessageSquare } from 'lucide-react';
+import { useParams } from 'react-router-dom';
+import { supabase } from '../../lib/supabase';
 
 interface OracleSourceSettingsProps {
   config: Record<string, any>;
@@ -23,10 +25,95 @@ interface Parameter {
 }
 
 export function OracleSourceSettings({ config, onChange }: OracleSourceSettingsProps) {
+  const { id: pipelineId } = useParams<{ id: string }>();
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['connection']));
   const [localConfig, setLocalConfig] = useState(config);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [tableToDelete, setTableToDelete] = useState<string | null>(null);
+
+  // Redo Log Monitoring state
+  const [enableLogMonitoring, setEnableLogMonitoring] = useState(false);
+  const [maxRedoSize, setMaxRedoSize] = useState(10240);
+  const [alertThreshold, setAlertThreshold] = useState(80);
+  const [logMonitoringSlack, setLogMonitoringSlack] = useState(false);
+  const [savingLogMonitoring, setSavingLogMonitoring] = useState(false);
+
+  // Load Redo Log Monitoring preferences from database
+  useEffect(() => {
+    const loadLogMonitoring = async () => {
+      if (!pipelineId) return;
+
+      try {
+        const { data, error } = await supabase
+          .from('pipelines')
+          .select('enable_log_monitoring, max_wal_size, alert_threshold, log_monitoring_slack')
+          .eq('id', pipelineId)
+          .single();
+
+        if (error) throw error;
+
+        if (data) {
+          setEnableLogMonitoring(data.enable_log_monitoring || false);
+          setMaxRedoSize(data.max_wal_size || 10240);
+          setAlertThreshold(data.alert_threshold || 80);
+          setLogMonitoringSlack(data.log_monitoring_slack || false);
+        }
+      } catch (error) {
+        console.error('Error loading log monitoring preferences:', error);
+      }
+    };
+
+    loadLogMonitoring();
+  }, [pipelineId]);
+
+  // Save Redo Log Monitoring preferences
+  const handleEnableLogMonitoringChange = async (enabled: boolean) => {
+    setEnableLogMonitoring(enabled);
+    await saveLogMonitoringPreferences(enabled, maxRedoSize, alertThreshold, logMonitoringSlack);
+  };
+
+  const handleMaxRedoSizeChange = async (size: number) => {
+    setMaxRedoSize(size);
+    await saveLogMonitoringPreferences(enableLogMonitoring, size, alertThreshold, logMonitoringSlack);
+  };
+
+  const handleAlertThresholdChange = async (threshold: number) => {
+    setAlertThreshold(threshold);
+    await saveLogMonitoringPreferences(enableLogMonitoring, maxRedoSize, threshold, logMonitoringSlack);
+  };
+
+  const handleLogMonitoringSlackChange = async (enabled: boolean) => {
+    setLogMonitoringSlack(enabled);
+    await saveLogMonitoringPreferences(enableLogMonitoring, maxRedoSize, alertThreshold, enabled);
+  };
+
+  const saveLogMonitoringPreferences = async (
+    enabled: boolean,
+    maxSize: number,
+    threshold: number,
+    slackEnabled: boolean
+  ) => {
+    if (!pipelineId) return;
+
+    setSavingLogMonitoring(true);
+    try {
+      const { error } = await supabase
+        .from('pipelines')
+        .update({
+          enable_log_monitoring: enabled,
+          max_wal_size: maxSize,
+          alert_threshold: threshold,
+          log_monitoring_slack: slackEnabled,
+        })
+        .eq('id', pipelineId);
+
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error saving log monitoring preferences:', error);
+    } finally {
+      setSavingLogMonitoring(false);
+    }
+  };
 
   const categories: ParameterCategory[] = [
     {

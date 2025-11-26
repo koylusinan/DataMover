@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useRef, ReactNode } from 'react';
 import { User, AuthError, Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../components/ui/Toast';
@@ -38,6 +38,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const { showToast } = useToast();
+  const isInitializedRef = useRef(false);
 
   const fetchProfile = async (userId: string) => {
     try {
@@ -99,6 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
@@ -116,19 +118,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setProfile(profileData);
             await updateLastLogin(session.user.id);
           }
+          isInitializedRef.current = true;
           setLoading(false);
         }).catch((error) => {
           console.error('Error in profile flow:', error);
+          isInitializedRef.current = true;
           setLoading(false);
         });
       } else {
+        isInitializedRef.current = true;
         setLoading(false);
       }
     });
 
+    // Listen for auth state changes (login, logout, token refresh)
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      // Skip INITIAL_SESSION event since we handle it via getSession()
+      if (event === 'INITIAL_SESSION') {
+        return;
+      }
+
       setSession(session);
       setUser(session?.user ?? null);
 
@@ -143,7 +154,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setProfile(newProfile);
           } else {
             setProfile(profileData);
-            await updateLastLogin(session.user.id);
+            // Only update last login on actual sign in, not token refresh
+            if (event === 'SIGNED_IN') {
+              await updateLastLogin(session.user.id);
+            }
           }
         }).catch((error) => {
           console.error('Error in profile flow:', error);

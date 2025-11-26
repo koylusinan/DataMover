@@ -335,6 +335,231 @@ server.get('/api/pipelines/:pipelineId/wal-size', async (request, reply) => {
   }
 });
 
+// GET /api/pipelines/:pipelineId/consumer-group - Get Kafka consumer group details
+server.get('/api/pipelines/:pipelineId/consumer-group', async (request, reply) => {
+  const { pipelineId } = request.params;
+
+  try {
+    // Get pipeline info from database
+    const pipelineResult = await registryPool.query(
+      'SELECT id, name FROM pipelines WHERE id = $1',
+      [pipelineId]
+    );
+
+    if (pipelineResult.rows.length === 0) {
+      return reply.code(404).send({
+        success: false,
+        error: 'Pipeline not found'
+      });
+    }
+
+    const pipeline = pipelineResult.rows[0];
+    const groupName = `connect-${pipeline.name}-sink`;
+
+    // Use KafkaJS Admin API
+    const { Kafka } = await import('kafkajs');
+    const kafkaBrokers = process.env.KAFKA_BROKERS || 'localhost:9092';
+
+    const kafka = new Kafka({
+      clientId: 'cdcstream-backend',
+      brokers: kafkaBrokers.split(',')
+    });
+
+    const admin = kafka.admin();
+    await admin.connect();
+
+    try {
+      // Get consumer group offsets
+      const groupOffsets = await admin.fetchOffsets({ groupId: groupName });
+
+      // Get all partitions info to calculate lag
+      const partitions = await Promise.all(groupOffsets.map(async (topicOffset) => {
+        const topicOffsets = await admin.fetchTopicOffsets(topicOffset.topic);
+
+        return topicOffset.partitions.map(partition => {
+          const topicPartition = topicOffsets.find(t => t.partition === partition.partition);
+          const logEndOffset = topicPartition ? parseInt(topicPartition.high) : 0;
+          const currentOffset = parseInt(partition.offset);
+          const lag = logEndOffset - currentOffset;
+
+          return {
+            group: groupName,
+            topic: topicOffset.topic,
+            partition: partition.partition,
+            currentOffset: currentOffset,
+            logEndOffset: logEndOffset,
+            lag: lag >= 0 ? lag : 0,
+            consumerId: partition.metadata || '',
+            host: '',
+            clientId: ''
+          };
+        });
+      }));
+
+      await admin.disconnect();
+
+      return reply.send({
+        success: true,
+        data: {
+          groupName,
+          partitions: partitions.flat()
+        }
+      });
+
+    } finally {
+      await admin.disconnect();
+    }
+
+  } catch (error) {
+    request.log.error({ err: error, pipelineId }, 'Failed to get consumer group details');
+    return reply.code(500).send({
+      success: false,
+      error: error.message || 'Failed to get consumer group details'
+    });
+  }
+});
+
+// GET /api/jmx-metrics - Fetch JMX metrics from Prometheus
+server.get('/api/jmx-metrics', async (request, reply) => {
+  const PROMETHEUS_URL = process.env.PROMETHEUS_URL || 'http://localhost:9090';
+
+  const jmxMetrics = [
+    'jmx_config_reload_failure_total',
+    'jmx_config_reload_success_total',
+    'jmx_scrape_cached_beans',
+    'jmx_scrape_duration_seconds',
+    'jmx_scrape_error',
+    'jmx_exporter_build_info'
+  ];
+
+  try {
+    const metricsData = {};
+
+    // Query each metric from Prometheus
+    for (const metric of jmxMetrics) {
+      try {
+        const response = await fetch(
+          `${PROMETHEUS_URL}/api/v1/query?query=${metric}`
+        );
+
+        if (!response.ok) {
+          server.log.warn(`Failed to fetch ${metric}: ${response.statusText}`);
+          metricsData[metric] = null;
+          continue;
+        }
+
+        const data = await response.json();
+
+        if (data.status === 'success' && data.data.result.length > 0) {
+          // Get the latest value
+          const result = data.data.result[0];
+          const value = result.value[1];
+
+          // For build_info, extract version from metric labels
+          if (metric === 'jmx_exporter_build_info') {
+            metricsData[metric] = {
+              value: value,
+              version: result.metric.version || 'unknown',
+              buildDate: result.metric.buildDate || 'unknown'
+            };
+          } else {
+            metricsData[metric] = parseFloat(value) || 0;
+          }
+        } else {
+          metricsData[metric] = 0;
+        }
+      } catch (err) {
+        server.log.error({ err, metric }, `Error fetching ${metric}`);
+        metricsData[metric] = null;
+      }
+    }
+
+    return reply.send({
+      success: true,
+      data: metricsData
+    });
+
+  } catch (error) {
+    request.log.error({ err: error }, 'Failed to get JMX metrics');
+    return reply.code(500).send({
+      success: false,
+      error: error.message || 'Failed to get JMX metrics'
+    });
+  }
+});
+
+// Get Kafka Consumer Metrics from Prometheus
+server.get('/api/kafka-consumer-metrics', async (request, reply) => {
+  const PROMETHEUS_URL = process.env.PROMETHEUS_URL || 'http://localhost:9090';
+
+  const consumerMetrics = [
+    // Critical Metrics
+    'kafka_consumer_consumer_fetch_manager_metrics_records_lag_max',
+    'kafka_consumer_consumer_fetch_manager_metrics_records_consumed_rate',
+    'kafka_consumer_consumer_fetch_manager_metrics_bytes_consumed_rate',
+    'kafka_consumer_consumer_metrics_last_poll_seconds_ago',
+
+    // Performance Metrics
+    'kafka_consumer_consumer_fetch_manager_metrics_fetch_latency_avg',
+    'kafka_consumer_consumer_fetch_manager_metrics_fetch_latency_max',
+    'kafka_consumer_consumer_coordinator_metrics_commit_latency_avg',
+    'kafka_consumer_consumer_coordinator_metrics_commit_rate',
+
+    // Health Metrics
+    'kafka_consumer_consumer_coordinator_metrics_assigned_partitions',
+    'kafka_consumer_consumer_coordinator_metrics_heartbeat_rate',
+    'kafka_consumer_consumer_coordinator_metrics_last_heartbeat_seconds_ago',
+    'kafka_consumer_consumer_coordinator_metrics_failed_rebalance_total',
+
+    // Throughput Metrics
+    'kafka_consumer_consumer_fetch_manager_metrics_records_consumed_total',
+    'kafka_consumer_consumer_fetch_manager_metrics_fetch_rate',
+    'kafka_consumer_consumer_fetch_manager_metrics_records_per_request_avg'
+  ];
+
+  try {
+    const metricsData = {};
+
+    for (const metric of consumerMetrics) {
+      try {
+        const response = await fetch(
+          `${PROMETHEUS_URL}/api/v1/query?query=${metric}`
+        );
+
+        if (!response.ok) {
+          server.log.warn(`Failed to fetch ${metric}: ${response.statusText}`);
+          metricsData[metric] = null;
+          continue;
+        }
+
+        const data = await response.json();
+
+        if (data.status === 'success' && data.data.result.length > 0) {
+          const result = data.data.result[0];
+          const value = result.value[1];
+          metricsData[metric] = parseFloat(value) || 0;
+        } else {
+          metricsData[metric] = 0;
+        }
+      } catch (err) {
+        server.log.error({ err, metric }, `Error fetching ${metric}`);
+        metricsData[metric] = null;
+      }
+    }
+
+    return reply.send({
+      success: true,
+      data: metricsData
+    });
+  } catch (error) {
+    request.log.error({ err: error }, 'Failed to get Kafka consumer metrics');
+    return reply.code(500).send({
+      success: false,
+      error: error.message || 'Failed to get Kafka consumer metrics'
+    });
+  }
+});
+
 server.post('/api/test-connection', async (request, reply) => {
   const payload = request.body ?? {};
   const { connectionType } = payload;

@@ -1,6 +1,6 @@
 import { Activity, TrendingUp, TrendingDown, AlertTriangle, Database, Zap, Loader2, Info, Bell, MessageSquare, LayoutDashboard, X } from 'lucide-react';
 import { KpiChip } from '../ui/KpiChip';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { getPipelineMonitoring, type PipelineMonitoring, type MetricData as ApiMetricData, type ConnectorTaskMetric, type SlowTable } from '../../lib/debezium';
@@ -64,6 +64,7 @@ export function MonitoringTab({ refreshTrigger, refreshInterval = 60000, isActiv
   const [selectedPanels, setSelectedPanels] = useState<string[]>([]);
   const [layout, setLayout] = useState<Layout[]>([]);
   const [isInitialLoadComplete, setIsInitialLoadComplete] = useState(false);
+  const isMountedRef = useRef(true);
 
   // Generate default layout based on selected panels
   const generateDefaultLayout = (panels: string[]): Layout[] => {
@@ -189,12 +190,19 @@ export function MonitoringTab({ refreshTrigger, refreshInterval = 60000, isActiv
 
   // Fetch selected panel preferences from Redis
   useEffect(() => {
+    isMountedRef.current = true; // Track if component is still mounted
+
     const fetchPanelPreferences = async () => {
       if (!pipelineId) return;
 
       try {
-        const response = await fetch(`http://localhost:5001/api/monitoring-panels/${pipelineId}?userId=default`);
+        // Add timestamp to prevent browser caching
+        const timestamp = Date.now();
+        const response = await fetch(`http://localhost:5001/api/monitoring-panels/${pipelineId}?userId=default&_t=${timestamp}`);
         const data = await response.json();
+
+        // Only update state if component is still mounted
+        if (!isMountedRef.current) return;
 
         if (data.success && data.panels?.panels) {
           const panels = data.panels.panels;
@@ -203,8 +211,11 @@ export function MonitoringTab({ refreshTrigger, refreshInterval = 60000, isActiv
 
           // Load layout
           try {
-            const layoutResponse = await fetch(`http://localhost:5001/api/monitoring-layout/${pipelineId}?userId=default`);
+            const layoutResponse = await fetch(`http://localhost:5001/api/monitoring-layout/${pipelineId}?userId=default&_t=${timestamp}`);
             const layoutData = await layoutResponse.json();
+
+            // Only update state if component is still mounted
+            if (!isMountedRef.current) return;
 
             if (layoutData.success && layoutData.layout?.layout) {
               // Migrate old layout data: update h:6 to h:4, minH:4 to minH:3 (charts are now smaller)
@@ -255,7 +266,12 @@ export function MonitoringTab({ refreshTrigger, refreshInterval = 60000, isActiv
     };
 
     fetchPanelPreferences();
-  }, [pipelineId, isActive]); // Re-fetch when tab becomes active
+
+    // Cleanup function to prevent race conditions
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, [pipelineId, isActive, refreshTrigger]); // Re-fetch when tab becomes active or refreshTrigger changes
 
   // Fetch monitoring data from API
   useEffect(() => {
@@ -438,28 +454,41 @@ export function MonitoringTab({ refreshTrigger, refreshInterval = 60000, isActiv
     }
   };
 
+  // Panels that render inside the grid layout
+  const GRID_PANELS = ['throughput', 'latency', 'wal-size'];
+
+  // Loading placeholder for panels
+  const LoadingPlaceholder = ({ title }: { title: string }) => (
+    <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 h-full flex flex-col items-center justify-center">
+      <Loader2 className="w-6 h-6 text-blue-600 animate-spin mb-2" />
+      <span className="text-sm text-gray-500 dark:text-gray-400">{title}</span>
+    </div>
+  );
+
   // Render panel content by ID
   const renderPanel = (panelId: string) => {
-    const panelContent: Record<string, JSX.Element | null> = {
+    const panelContent: Record<string, JSX.Element> = {
       'throughput': monitoring && hasValidThroughputData && throughputChartData.length > 0 ? (
         <ThroughputChart
           data={throughputChartData}
           title="Source Throughput"
           color="#3b82f6"
+          height={300}
         />
-      ) : null,
+      ) : <LoadingPlaceholder title="Loading Throughput..." />,
       'latency': monitoring && hasValidLatencyData && latencyChartData.length > 0 ? (
         <LatencyChart
           data={latencyChartData}
           title="Source Latency"
+          height={300}
         />
-      ) : null,
+      ) : <LoadingPlaceholder title="Loading Latency..." />,
       'wal-size': pipelineId ? (
         <WALSizePanel
           pipelineId={pipelineId}
           height={320}
         />
-      ) : null
+      ) : <LoadingPlaceholder title="Loading WAL Size..." />
     };
 
     const content = panelContent[panelId];
@@ -485,17 +514,40 @@ export function MonitoringTab({ refreshTrigger, refreshInterval = 60000, isActiv
     );
   };
 
+  // Filter to only grid-compatible panels
+  const gridPanels = selectedPanels.filter(id => GRID_PANELS.includes(id));
+
+  // Ensure all grid panels have layout items (generate defaults if missing)
+  const gridLayout = gridPanels.map((panelId, index) => {
+    const existingLayout = layout.find(item => item.i === panelId);
+    if (existingLayout) return existingLayout;
+    // Generate default layout for missing panel
+    console.log(`📐 Generated default layout for panel: ${panelId}`);
+    return {
+      i: panelId,
+      x: (index % 2) * 6,
+      y: Math.floor(index / 2) * 4,
+      w: 6,
+      h: 4,
+      minW: 4,
+      minH: 3
+    };
+  });
+
+  // Debug log
+  console.log('📊 Grid state:', { gridPanels, gridLayoutCount: gridLayout.length, hasMonitoring: !!monitoring });
+
   return (
     <div className="space-y-6">
-      {/* Dashboard Panels Section */}
-      {selectedPanels.length > 0 && layout.length > 0 && (
+      {/* Dashboard Panels Section - Only for grid-compatible panels */}
+      {gridPanels.length > 0 && gridLayout.length > 0 && (
         <div>
           <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
             Dashboard Panels
           </h3>
           <ResponsiveGridLayout
             className="layout"
-            layouts={{ lg: layout }}
+            layouts={{ lg: gridLayout }}
             breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
             cols={{ lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 }}
             rowHeight={80}
@@ -505,7 +557,7 @@ export function MonitoringTab({ refreshTrigger, refreshInterval = 60000, isActiv
             compactType="vertical"
             preventCollision={false}
           >
-            {selectedPanels.map(panelId => renderPanel(panelId)).filter(Boolean)}
+            {gridPanels.map(panelId => renderPanel(panelId)).filter(Boolean)}
           </ResponsiveGridLayout>
         </div>
       )}

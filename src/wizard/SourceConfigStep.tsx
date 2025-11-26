@@ -691,7 +691,7 @@ export function SourceConfigStep({ sourceType }: SourceConfigStepProps) {
               </div>
             </label>
 
-            {sourceType === 'postgres' && (
+            {(sourceType === 'postgres' || sourceType === 'oracle') && (
               <label className="flex items-start gap-3 cursor-pointer group">
                 <div className="relative inline-block w-11 h-6 mt-1">
                   <input

@@ -478,7 +478,7 @@ class MonitoringService {
       const alertThresholdPercent = settings.alert_threshold || 80;
       const thresholdMB = (maxWalSizeMB * alertThresholdPercent) / 100;
 
-      // Get slot name from connector config
+      // Get slot name and connection details from connector config
       const connectorResult = await client.query(
         `SELECT config FROM pipeline_connectors
          WHERE pipeline_id = $1 AND type = 'source'`,
@@ -488,30 +488,32 @@ class MonitoringService {
       if (connectorResult.rows.length === 0) return;
 
       const connectorConfig = connectorResult.rows[0].config;
-      const slotName = connectorConfig.snapshot_config?.['slot.name'] ||
-                       connectorConfig['slot.name'] ||
+      const slotName = connectorConfig['slot.name'] ||
                        `${pipeline.name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}_slot`;
 
-      // Ensure password is a string (handle encrypted/buffer passwords)
-      let password = '';
-      if (sourceConfig.password) {
-        if (typeof sourceConfig.password === 'string') {
-          password = sourceConfig.password;
-        } else if (Buffer.isBuffer(sourceConfig.password)) {
-          password = sourceConfig.password.toString('utf8');
-        } else if (typeof sourceConfig.password === 'object') {
-          password = JSON.stringify(sourceConfig.password);
-        }
+      // Get password from connector config (already decrypted/plain string)
+      const password = connectorConfig['database.password'] || '';
+
+      // Get connection details - prefer connector config, fallback to source_config
+      let host = connectorConfig['database.hostname'] || sourceConfig.host;
+      const port = parseInt(connectorConfig['database.port']) || sourceConfig.port || 5432;
+      const database = connectorConfig['database.dbname'] || sourceConfig.database_name;
+      const username = connectorConfig['database.user'] || sourceConfig.username;
+      const useSSL = connectorConfig['use_ssl'] === 'true' || sourceConfig.ssl;
+
+      // If host is a Docker service name, use localhost for external access
+      if (host === 'pg-debezium' || host === 'postgres' || host.includes('docker')) {
+        host = '127.0.0.1';
       }
 
       // Connect to source PostgreSQL and check WAL size
       const sourcePool = new PgPool({
-        host: sourceConfig.host,
-        port: sourceConfig.port || 5432,
-        database: sourceConfig.database_name,
-        user: sourceConfig.username,
+        host: host,
+        port: port,
+        database: database,
+        user: username,
         password: password,
-        ssl: sourceConfig.ssl ? { rejectUnauthorized: false } : false,
+        ssl: useSSL ? { rejectUnauthorized: false } : false,
         connectionTimeoutMillis: 5000,
       });
 

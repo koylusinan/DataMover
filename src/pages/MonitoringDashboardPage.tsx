@@ -5,6 +5,7 @@ import { ThroughputChart } from '../components/monitoring/ThroughputChart';
 import { LatencyChart } from '../components/monitoring/LatencyChart';
 import { ErrorRateChart } from '../components/monitoring/ErrorRateChart';
 import { WALSizePanel } from '../components/monitoring/WALSizePanel';
+import { ConsumerGroupPanel } from '../components/monitoring/ConsumerGroupPanel';
 import { Sparkline } from '../components/monitoring/Sparkline';
 import { KpiChip } from '../components/ui/KpiChip';
 import { getPipelineMonitoring, type PipelineMonitoring, type MetricData, type SlowTable, type ConnectorTaskMetric } from '../lib/debezium';
@@ -17,6 +18,7 @@ interface Pipeline {
   id: string;
   name: string;
   status: string;
+  source_type?: string;
 }
 
 const BACKEND_URL = import.meta.env.VITE_DEBEZIUM_BACKEND_URL || 'http://localhost:5002';
@@ -46,7 +48,10 @@ interface ActivityEvent {
   metricValue?: number; // Current metric value
 }
 
+type TabType = 'pipelines' | 'kafka' | 'jmx';
+
 export function MonitoringDashboardPage() {
+  const [activeTab, setActiveTab] = useState<TabType>('pipelines');
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [selectedPipelineId, setSelectedPipelineId] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
@@ -87,6 +92,12 @@ export function MonitoringDashboardPage() {
   const [errorRateHistory, setErrorRateHistory] = useState<number[]>([]);
   const [commitRateHistory, setCommitRateHistory] = useState<number[]>([]);
 
+  // JMX metrics
+  const [jmxMetrics, setJmxMetrics] = useState<any>(null);
+
+  // Kafka Consumer metrics
+  const [consumerMetrics, setConsumerMetrics] = useState<any>(null);
+
   // Get selected pipeline for status check
   const selectedPipeline = pipelines.find(p => p.id === selectedPipelineId);
 
@@ -113,7 +124,7 @@ export function MonitoringDashboardPage() {
     try {
       const { data, error } = await supabase
         .from('pipelines')
-        .select('id, name, status')
+        .select('id, name, status, source_type')
         .in('status', ['running', 'paused', 'stopped'])
         .order('name');
 
@@ -238,8 +249,8 @@ export function MonitoringDashboardPage() {
           queueUsage: '0%'
         });
 
-        // Generate activity events based on monitoring data
-        generateActivityEvents(monitoringData);
+        // Generate activity events based on monitoring data (now async)
+        await generateActivityEvents(monitoringData);
       }
     } catch (error) {
       console.error('Error fetching monitoring data:', error);
@@ -248,10 +259,42 @@ export function MonitoringDashboardPage() {
       setSlowTables([]);
       setConnectorTasks([]);
     }
+  }, [selectedPipelineId]);
+
+  // Fetch JMX metrics from backend
+  const fetchJMXMetrics = useCallback(async () => {
+    try {
+      const response = await fetch('http://localhost:5001/api/jmx-metrics');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setJmxMetrics(data.data);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching JMX metrics:', error);
+      setJmxMetrics(null);
+    }
+  }, []);
+
+  // Fetch Kafka Consumer metrics from backend
+  const fetchConsumerMetrics = useCallback(async () => {
+    try {
+      const response = await fetch('http://localhost:5001/api/kafka-consumer-metrics');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setConsumerMetrics(data.data);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching consumer metrics:', error);
+      setConsumerMetrics(null);
+    }
   }, []);
 
   // Generate activity events from monitoring data
-  const generateActivityEvents = (monitoringData: PipelineMonitoring) => {
+  const generateActivityEvents = async (monitoringData: PipelineMonitoring) => {
     const events: ActivityEvent[] = [];
     const now = new Date();
 
@@ -260,6 +303,38 @@ export function MonitoringDashboardPage() {
       const time = new Date(now.getTime() - minutesAgo * 60000);
       return time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     };
+
+    // Fetch WAL alerts from database
+    try {
+      const { data: walAlerts } = await supabase
+        .from('alert_events')
+        .select('*')
+        .eq('pipeline_id', selectedPipelineId)
+        .eq('alert_type', 'WAL_SIZE_EXCEEDED')
+        .eq('resolved', false)
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      // Add WAL alerts to events
+      if (walAlerts && walAlerts.length > 0) {
+        walAlerts.forEach((alert, index) => {
+          const alertTime = new Date(alert.created_at);
+          const minutesAgo = Math.floor((now.getTime() - alertTime.getTime()) / 60000);
+
+          events.push({
+            id: `wal-alert-${alert.id}`,
+            timestamp: alert.created_at,
+            time: alertTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            icon: '⚠️',
+            type: 'warning',
+            message: 'WAL Size Exceeded',
+            details: alert.message || `WAL size exceeded threshold`
+          });
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching WAL alerts:', error);
+    }
 
     // Generate events based on pipeline state
     let minuteCounter = 0;
@@ -396,6 +471,20 @@ export function MonitoringDashboardPage() {
     }
   }, [selectedPipelineId, timeRange, fetchMetrics, fetchFlowMetrics]);
 
+  // Fetch JMX metrics when JMX tab is active
+  useEffect(() => {
+    if (activeTab === 'jmx') {
+      fetchJMXMetrics();
+    }
+  }, [activeTab, fetchJMXMetrics]);
+
+  // Fetch consumer metrics when Kafka tab is active
+  useEffect(() => {
+    if (activeTab === 'kafka') {
+      fetchConsumerMetrics();
+    }
+  }, [activeTab, fetchConsumerMetrics]);
+
   // Auto-refresh
   useEffect(() => {
     if (!autoRefresh || !selectedPipelineId) return;
@@ -403,10 +492,16 @@ export function MonitoringDashboardPage() {
     const interval = setInterval(() => {
       fetchMetrics(selectedPipelineId);
       fetchFlowMetrics(selectedPipelineId);
+      if (activeTab === 'jmx') {
+        fetchJMXMetrics();
+      }
+      if (activeTab === 'kafka') {
+        fetchConsumerMetrics();
+      }
     }, 30000); // Refresh every 30 seconds
 
     return () => clearInterval(interval);
-  }, [autoRefresh, selectedPipelineId, fetchMetrics, fetchFlowMetrics]);
+  }, [autoRefresh, selectedPipelineId, activeTab, fetchMetrics, fetchFlowMetrics, fetchJMXMetrics, fetchConsumerMetrics]);
 
   // Track historical metrics for sparklines
   useEffect(() => {
@@ -623,6 +718,42 @@ export function MonitoringDashboardPage() {
             </button>
           </div>
         </div>
+
+        {/* Tab Navigation */}
+        <div className="mt-6 border-t border-gray-200 dark:border-gray-700">
+          <div className="flex gap-2 pt-4">
+            <button
+              onClick={() => setActiveTab('pipelines')}
+              className={`px-6 py-3 text-sm font-semibold rounded-t-lg transition-all ${
+                activeTab === 'pipelines'
+                  ? 'bg-blue-600 text-white shadow-lg'
+                  : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'
+              }`}
+            >
+              Pipelines
+            </button>
+            <button
+              onClick={() => setActiveTab('kafka')}
+              className={`px-6 py-3 text-sm font-semibold rounded-t-lg transition-all ${
+                activeTab === 'kafka'
+                  ? 'bg-blue-600 text-white shadow-lg'
+                  : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'
+              }`}
+            >
+              Kafka
+            </button>
+            <button
+              onClick={() => setActiveTab('jmx')}
+              className={`px-6 py-3 text-sm font-semibold rounded-t-lg transition-all ${
+                activeTab === 'jmx'
+                  ? 'bg-blue-600 text-white shadow-lg'
+                  : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'
+              }`}
+            >
+              JMX
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Content Area */}
@@ -644,8 +775,11 @@ export function MonitoringDashboardPage() {
             </div>
           </div>
         ) : (
-          <div className="space-y-6">
-            {/* Pipeline Progress - from Pipeline Details */}
+          <>
+            {/* Pipelines Tab */}
+            {activeTab === 'pipelines' && (
+              <div className="space-y-6">
+                {/* Pipeline Progress - from Pipeline Details */}
             {selectedPipeline && (selectedPipeline.status === 'running' || selectedPipeline.status === 'paused') && (
               <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-6">Pipeline Progress</h3>
@@ -746,46 +880,37 @@ export function MonitoringDashboardPage() {
               </div>
             )}
 
-            {/* Charts Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="h-[400px]">
-                <ThroughputChart
-                  data={throughputData}
-                  title="Source Throughput"
-                  color="#3b82f6"
-                  onViewDetails={() => handleAddPanelToDetails('throughput')}
-                />
-              </div>
-              <div className="h-[400px]">
-                <LatencyChart
-                  data={latencyData}
-                  title="Source Latency"
-                  onViewDetails={() => handleAddPanelToDetails('latency')}
-                />
-              </div>
-            </div>
+                {/* Charts Grid */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <div className="h-[400px]">
+                    <ThroughputChart
+                      data={throughputData}
+                      title="Source Throughput"
+                      color="#3b82f6"
+                      onViewDetails={() => handleAddPanelToDetails('throughput')}
+                    />
+                  </div>
+                  <div className="h-[400px]">
+                    <LatencyChart
+                      data={latencyData}
+                      title="Source Latency"
+                      onViewDetails={() => handleAddPanelToDetails('latency')}
+                    />
+                  </div>
+                </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="h-[400px]">
-                <ErrorRateChart
-                  data={errorData}
-                  title="Error Rate"
-                  threshold={10}
-                />
-              </div>
-              {selectedPipelineId && (
+                {/* Error Rate Chart */}
                 <div className="h-[400px]">
-                  <WALSizePanel
-                    pipelineId={selectedPipelineId}
-                    height={400}
+                  <ErrorRateChart
+                    data={errorData}
+                    title="Error Rate"
+                    threshold={10}
                   />
                 </div>
-              )}
-            </div>
 
-            {/* Records Flow */}
-            {flowMetrics && (
-              <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
+                {/* Records Flow */}
+                {flowMetrics && (
+                  <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-3">
                     <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg">
@@ -1306,22 +1431,226 @@ export function MonitoringDashboardPage() {
               </p>
             </div>
 
-            {/* Info Box */}
-            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-              <div className="flex items-start gap-3">
-                <Activity className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5" />
-                <div>
-                  <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-1">
-                    Real-time Monitoring Active
-                  </h4>
-                  <p className="text-sm text-blue-700 dark:text-blue-300">
-                    Monitoring data for <strong>{selectedPipeline.name}</strong> is being refreshed every 30 seconds.
-                    {autoRefresh && ' Auto-refresh is enabled.'}
-                  </p>
+                {/* Info Box */}
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <Activity className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-1">
+                        Real-time Monitoring Active
+                      </h4>
+                      <p className="text-sm text-blue-700 dark:text-blue-300">
+                        Monitoring data for <strong>{selectedPipeline.name}</strong> is being refreshed every 30 seconds.
+                        {autoRefresh && ' Auto-refresh is enabled.'}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>
+            )}
+
+            {/* Kafka Tab */}
+            {activeTab === 'kafka' && (
+              <div className="space-y-6">
+                {/* Consumer Metrics Dashboard */}
+                {consumerMetrics && (
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    {/* Consumer Lag - CRITICAL */}
+                    <div className="bg-gradient-to-br from-red-50 to-orange-50 dark:from-red-900/20 dark:to-orange-900/20 border border-red-200 dark:border-red-700 rounded-lg p-5">
+                      <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">Consumer Lag</h4>
+                      <div className="text-3xl font-bold text-red-700 dark:text-red-300">
+                        {consumerMetrics.kafka_consumer_consumer_fetch_manager_metrics_records_lag_max?.toFixed(0) || 0}
+                      </div>
+                      <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">Max Records Behind</div>
+                    </div>
+
+                    {/* Consumption Rate */}
+                    <div className="bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 border border-green-200 dark:border-green-700 rounded-lg p-5">
+                      <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">Consumption Rate</h4>
+                      <div className="text-3xl font-bold text-green-700 dark:text-green-300">
+                        {consumerMetrics.kafka_consumer_consumer_fetch_manager_metrics_records_consumed_rate?.toFixed(2) || '0.00'}
+                      </div>
+                      <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">Records/sec</div>
+                    </div>
+
+                    {/* Fetch Latency */}
+                    <div className="bg-gradient-to-br from-blue-50 to-cyan-50 dark:from-blue-900/20 dark:to-cyan-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-5">
+                      <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">Fetch Latency</h4>
+                      <div className="text-3xl font-bold text-blue-700 dark:text-blue-300">
+                        {consumerMetrics.kafka_consumer_consumer_fetch_manager_metrics_fetch_latency_avg?.toFixed(2) || '0.00'}
+                      </div>
+                      <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">ms (avg)</div>
+                    </div>
+
+                    {/* Last Poll */}
+                    <div className="bg-gradient-to-br from-yellow-50 to-amber-50 dark:from-yellow-900/20 dark:to-amber-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg p-5">
+                      <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">Last Poll</h4>
+                      <div className="text-3xl font-bold text-yellow-700 dark:text-yellow-300">
+                        {consumerMetrics.kafka_consumer_consumer_metrics_last_poll_seconds_ago?.toFixed(1) || '0.0'}
+                      </div>
+                      <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">seconds ago</div>
+                    </div>
+
+                    {/* Assigned Partitions */}
+                    <div className="bg-gradient-to-br from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20 border border-purple-200 dark:border-purple-700 rounded-lg p-5">
+                      <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">Assigned Partitions</h4>
+                      <div className="text-3xl font-bold text-purple-700 dark:text-purple-300">
+                        {consumerMetrics.kafka_consumer_consumer_coordinator_metrics_assigned_partitions || 0}
+                      </div>
+                      <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">Active</div>
+                    </div>
+
+                    {/* Commit Rate */}
+                    <div className="bg-gradient-to-br from-pink-50 to-rose-50 dark:from-pink-900/20 dark:to-rose-900/20 border border-pink-200 dark:border-pink-700 rounded-lg p-5">
+                      <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">Commit Rate</h4>
+                      <div className="text-3xl font-bold text-pink-700 dark:text-pink-300">
+                        {consumerMetrics.kafka_consumer_consumer_coordinator_metrics_commit_rate?.toFixed(2) || '0.00'}
+                      </div>
+                      <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">commits/sec</div>
+                    </div>
+
+                    {/* WAL Size - PostgreSQL only */}
+                    {selectedPipeline?.source_type === 'postgres' && (
+                      <div className="lg:col-span-2">
+                        <WALSizePanel
+                          pipelineId={selectedPipelineId!}
+                          height={300}
+                        />
+                      </div>
+                    )}
+
+                    {/* Consumer Group Panel */}
+                    <div className="lg:col-span-1">
+                      <ConsumerGroupPanel
+                        pipelineId={selectedPipelineId!}
+                        height={300}
+                      />
+                    </div>
+
+                    {/* Redo Log - Oracle only */}
+                    {selectedPipeline?.source_type === 'oracle' && (
+                      <div className="bg-gradient-to-br from-orange-50 to-amber-50 dark:from-orange-900/20 dark:to-amber-900/20 border border-orange-200 dark:border-orange-700 rounded-lg p-5">
+                        <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">Redo Log Size</h4>
+                        <div className="text-3xl font-bold text-orange-700 dark:text-orange-300">
+                          0.00
+                        </div>
+                        <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">MB (Coming Soon)</div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* JMX Tab */}
+            {activeTab === 'jmx' && (
+              <div className="space-y-6">
+                {!jmxMetrics ? (
+                  <div className="flex items-center justify-center h-64">
+                    <div className="text-center">
+                      <RefreshCw className="w-8 h-8 text-blue-600 animate-spin mx-auto mb-4" />
+                      <p className="text-gray-600 dark:text-gray-400">Loading JMX metrics...</p>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-6">JMX Metrics</h3>
+
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* JMX Scrape Performance */}
+                        <div className="bg-gradient-to-br from-blue-50 to-cyan-50 dark:from-blue-900/20 dark:to-cyan-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-5">
+                          <div className="flex items-center gap-3 mb-4">
+                            <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                              <Activity className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                            </div>
+                            <h4 className="text-base font-semibold text-gray-900 dark:text-gray-100">JMX Scrape Performance</h4>
+                          </div>
+                          <div className="space-y-3">
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm text-gray-600 dark:text-gray-400">Scrape Duration</span>
+                              <span className="text-lg font-bold text-blue-700 dark:text-blue-300">
+                                {jmxMetrics.jmx_scrape_duration_seconds?.toFixed(3) || '0.000'} sec
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm text-gray-600 dark:text-gray-400">Cached Beans</span>
+                              <span className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                                {jmxMetrics.jmx_scrape_cached_beans || 0}
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm text-gray-600 dark:text-gray-400">Scrape Errors</span>
+                              <span className={`text-lg font-bold ${jmxMetrics.jmx_scrape_error > 0 ? 'text-red-700 dark:text-red-300' : 'text-green-700 dark:text-green-300'}`}>
+                                {jmxMetrics.jmx_scrape_error || 0}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* JMX Config Reload Stats */}
+                        <div className="bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 border border-green-200 dark:border-green-700 rounded-lg p-5">
+                          <div className="flex items-center gap-3 mb-4">
+                            <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
+                              <RefreshCw className="w-5 h-5 text-green-600 dark:text-green-400" />
+                            </div>
+                            <h4 className="text-base font-semibold text-gray-900 dark:text-gray-100">Config Reload Stats</h4>
+                          </div>
+                          <div className="space-y-3">
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm text-gray-600 dark:text-gray-400">Success Total</span>
+                              <span className="text-lg font-bold text-green-700 dark:text-green-300">
+                                {jmxMetrics.jmx_config_reload_success_total || 0}
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm text-gray-600 dark:text-gray-400">Failure Total</span>
+                              <span className="text-lg font-bold text-red-700 dark:text-red-300">
+                                {jmxMetrics.jmx_config_reload_failure_total || 0}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* JMX Build Info */}
+                        <div className="bg-gradient-to-br from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20 border border-purple-200 dark:border-purple-700 rounded-lg p-5">
+                          <div className="flex items-center gap-3 mb-4">
+                            <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
+                              <Info className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                            </div>
+                            <h4 className="text-base font-semibold text-gray-900 dark:text-gray-100">JMX Build Info</h4>
+                          </div>
+                          <div className="space-y-3">
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm text-gray-600 dark:text-gray-400">Exporter Version</span>
+                              <span className="text-lg font-bold text-purple-700 dark:text-purple-300">
+                                {jmxMetrics.jmx_exporter_build_info?.version || 'Unknown'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Info Note */}
+                    <div className="mt-6 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+                      <div className="flex items-start gap-3">
+                        <Info className="w-5 h-5 text-yellow-600 dark:text-yellow-400 mt-0.5" />
+                        <div>
+                          <h5 className="text-sm font-semibold text-yellow-900 dark:text-yellow-100 mb-1">
+                            JMX Metrics Available
+                          </h5>
+                          <p className="text-sm text-yellow-700 dark:text-yellow-300">
+                            These 8 JMX metrics are exposed by the JMX exporter running on Prometheus. You can query these metrics directly using Prometheus queries or create custom dashboards in Grafana.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

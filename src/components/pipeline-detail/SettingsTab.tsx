@@ -481,7 +481,7 @@ export function SettingsTab({ pipeline, onUpdate }: SettingsTabProps) {
 
   const renderOverview = () => {
     return (
-      <div className="sticky top-0 z-10 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 mb-3 shadow-sm">
+      <div className="sticky top-0 z-[100] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 mb-3 shadow-sm">
         <div className="flex items-center justify-between">
           {/* Left: Pipeline Info and Database Flow */}
           <div className="flex items-center gap-4">
@@ -562,7 +562,8 @@ export function SettingsTab({ pipeline, onUpdate }: SettingsTabProps) {
   ];
 
   return (
-    <div className="flex gap-6">
+    <>
+      <div className="flex gap-6 h-full">
       {/* Sidebar */}
       <div className="w-64 flex-shrink-0">
         <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-2 sticky top-4">
@@ -583,12 +584,11 @@ export function SettingsTab({ pipeline, onUpdate }: SettingsTabProps) {
       </div>
 
       {/* Content Area */}
-      <div className="flex-1 relative">
-        <div className="h-full overflow-auto">
-          {/* Overview Section - Always visible and sticky */}
-          {renderOverview()}
+      <div className="flex-1 overflow-y-auto">
+        {/* Overview Section - Always visible and sticky */}
+        {renderOverview()}
 
-          {activeSection === 'setup' && (
+        {activeSection === 'setup' && (
             <div className="space-y-4">
 
               {/* Configure Source Section */}
@@ -916,7 +916,7 @@ export function SettingsTab({ pipeline, onUpdate }: SettingsTabProps) {
           </div>
         </>
       )}
-    </div>
+    </>
   );
 }
 

@@ -1,0 +1,21 @@
+# Dockerfile for pipeline-cleanup-service
+# Pipeline Cleanup - SINGLE INSTANCE ONLY (stateful, runs on interval)
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci --only=production
+
+# Copy backend code
+COPY backend/pipeline-cleanup-service.js ./backend/
+COPY backend/start-cleanup.js ./backend/
+
+# Environment variables
+ENV NODE_ENV=production
+
+# Start cleanup service
+CMD ["node", "backend/start-cleanup.js"]

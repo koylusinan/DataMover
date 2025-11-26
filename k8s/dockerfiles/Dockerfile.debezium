@@ -1,4 +1,5 @@
 # Dockerfile for backend/debezium-backend.js (Port 5002)
+# Debezium/Kafka Connect Management API - Stateless, can run multiple replicas
 FROM node:20-alpine
 
 WORKDIR /app
@@ -9,13 +10,18 @@ COPY package*.json ./
 # Install dependencies
 RUN npm ci --only=production
 
-# Copy backend code
+# Copy backend code and all dependencies
 COPY backend/debezium-backend.js ./backend/
-COPY backend/monitoring-service.js ./backend/
-COPY backend/start-monitoring.js ./backend/
+COPY backend/redis-cache.js ./backend/
+COPY backend/pipeline-cleanup-service.js ./backend/
+COPY backend/monitoring-timeseries-endpoint.js ./backend/
 
 # Expose port
 EXPOSE 5002
+
+# Environment variables
+ENV NODE_ENV=production
+ENV DEBEZIUM_BACKEND_PORT=5002
 
 # Start debezium backend
 CMD ["node", "backend/debezium-backend.js"]

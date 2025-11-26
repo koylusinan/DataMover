@@ -1,21 +1,39 @@
 # Dockerfile for backend/database-ops/server.js (Port 3001)
+# Database Operations API - Stateless, can run multiple replicas
 FROM node:20-alpine
 
 WORKDIR /app
 
-# Copy package files from database-ops
+# Copy root package.json for dotenv
+COPY package*.json ./
+
+# Copy database-ops package files
 COPY backend/database-ops/package*.json ./backend/database-ops/
 
-# Install dependencies
+# Install root dependencies (for dotenv)
+RUN npm ci --only=production
+
+# Install database-ops dependencies
 WORKDIR /app/backend/database-ops
 RUN npm ci --only=production
 
-# Copy database-ops code
+# Go back to app root
 WORKDIR /app
-COPY backend/database-ops ./backend/database-ops/
+
+# Copy database-ops code (server, connections, utils)
+COPY backend/database-ops/server.js ./backend/database-ops/
+COPY backend/database-ops/connections ./backend/database-ops/connections/
+COPY backend/database-ops/utils ./backend/database-ops/utils/
+
+# Copy .env if exists (will be overridden by K8s ConfigMap/Secret)
+# COPY .env ./.env
 
 # Expose port
 EXPOSE 3001
+
+# Environment variables
+ENV NODE_ENV=production
+ENV DATABASE_OPS_PORT=3001
 
 # Start database-ops server
 CMD ["node", "backend/database-ops/server.js"]

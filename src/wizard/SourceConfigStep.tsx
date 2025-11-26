@@ -663,14 +663,6 @@ export function SourceConfigStep({ sourceType }: SourceConfigStepProps) {
             </div>
           )}
 
-          <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-3">
-            <p className="text-sm text-gray-700 dark:text-gray-300">
-              Please open access to the {sourceType === 'postgres' ? 'PostgreSQL' : sourceType === 'oracle' ? 'Oracle' : 'database'} port from DataMove's IP addresses{' '}
-              <span className="font-mono text-red-600 dark:text-red-400 font-semibold">{sourceType === 'postgres' ? '13.228.214.171' : '13.228.214.171'}</span> and{' '}
-              <span className="font-mono text-red-600 dark:text-red-400 font-semibold">{sourceType === 'postgres' ? '52.77.50.136' : '52.77.56.136'}</span>
-            </p>
-          </div>
-
           <div className="grid grid-cols-2 gap-4">
             <label className="flex items-start gap-3 cursor-pointer group">
               <div className="relative inline-block w-11 h-6 mt-1">
@@ -1033,97 +1025,100 @@ export function SourceConfigStep({ sourceType }: SourceConfigStepProps) {
             </>
           )}
 
-          <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
-            <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
-              <MessageSquare className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-              Log Monitoring
-            </h4>
+          {/* Log Monitoring - Only for PostgreSQL sources (WAL monitoring) */}
+          {sourceType === 'postgres' && (
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+              <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                Log Monitoring
+              </h4>
 
-            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-              <div className="space-y-4">
-                {/* Enable Log Monitoring Toggle */}
-                <label className="flex items-start gap-3 cursor-pointer group">
-                  <div className="relative inline-block w-11 h-6 mt-0.5">
-                    <input
-                      type="checkbox"
-                      name="enable_log_monitoring"
-                      checked={formData.enable_log_monitoring}
-                      onChange={handleChange}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-gray-200 dark:bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                  </div>
-                  <div className="flex-1">
-                    <div className="text-sm font-medium text-gray-900 dark:text-gray-100">Enable Log Monitoring</div>
-                    <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                      Enable or disable log monitoring for your Source
-                    </p>
-                  </div>
-                </label>
-
-                {/* Show configuration when enabled */}
-                {formData.enable_log_monitoring && (
-                  <div className="pl-14 space-y-4 border-t border-blue-200 dark:border-blue-800 pt-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">
-                          Max WAL Size (MB)
-                        </label>
-                        <input
-                          type="number"
-                          name="max_wal_size"
-                          value={formData.max_wal_size}
-                          onChange={handleChange}
-                          min="0"
-                          className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-gray-100"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">
-                          Alert Threshold (%)
-                        </label>
-                        <input
-                          type="number"
-                          name="alert_threshold"
-                          value={formData.alert_threshold}
-                          onChange={handleChange}
-                          min="0"
-                          max="100"
-                          className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-gray-100"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex items-start gap-3">
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                <div className="space-y-4">
+                  {/* Enable Log Monitoring Toggle */}
+                  <label className="flex items-start gap-3 cursor-pointer group">
+                    <div className="relative inline-block w-11 h-6 mt-0.5">
                       <input
                         type="checkbox"
-                        id="log-monitoring-slack"
-                        name="log_monitoring_slack"
-                        checked={formData.log_monitoring_slack}
+                        name="enable_log_monitoring"
+                        checked={formData.enable_log_monitoring}
                         onChange={handleChange}
-                        className="mt-1 rounded"
+                        className="sr-only peer"
                       />
-                      <div className="flex-1">
-                        <label
-                          htmlFor="log-monitoring-slack"
-                          className="text-sm font-medium text-gray-900 dark:text-gray-100 cursor-pointer"
-                        >
-                          Send Slack Notifications
-                        </label>
-                        <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                          Receive alert notifications over Slack when the WAL size exceeds the specified alert threshold value
-                        </p>
+                      <div className="w-11 h-6 bg-gray-200 dark:bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </div>
+                    <div className="flex-1">
+                      <div className="text-sm font-medium text-gray-900 dark:text-gray-100">Enable Log Monitoring</div>
+                      <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                        Enable or disable WAL (Write Ahead Log) monitoring for your PostgreSQL Source
+                      </p>
+                    </div>
+                  </label>
+
+                  {/* Show configuration when enabled */}
+                  {formData.enable_log_monitoring && (
+                    <div className="pl-14 space-y-4 border-t border-blue-200 dark:border-blue-800 pt-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">
+                            Max WAL Size (MB)
+                          </label>
+                          <input
+                            type="number"
+                            name="max_wal_size"
+                            value={formData.max_wal_size}
+                            onChange={handleChange}
+                            min="0"
+                            className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-gray-100"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">
+                            Alert Threshold (%)
+                          </label>
+                          <input
+                            type="number"
+                            name="alert_threshold"
+                            value={formData.alert_threshold}
+                            onChange={handleChange}
+                            min="0"
+                            max="100"
+                            className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-gray-100"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="checkbox"
+                          id="log-monitoring-slack"
+                          name="log_monitoring_slack"
+                          checked={formData.log_monitoring_slack}
+                          onChange={handleChange}
+                          className="mt-1 rounded"
+                        />
+                        <div className="flex-1">
+                          <label
+                            htmlFor="log-monitoring-slack"
+                            className="text-sm font-medium text-gray-900 dark:text-gray-100 cursor-pointer"
+                          >
+                            Send Slack Notifications
+                          </label>
+                          <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                            Receive alert notifications over Slack when the WAL size exceeds the specified alert threshold value
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
 
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-3 italic">
-                Note: This setting does not affect the connector configuration
-              </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-3 italic">
+                  Note: This setting does not affect the connector configuration
+                </p>
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="space-y-4 pt-6 border-t border-gray-200 dark:border-gray-700">
             <div className="flex gap-4">

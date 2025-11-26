@@ -16,8 +16,9 @@ export function PipelineModeStep({ sourceType }: PipelineModeStepProps) {
   };
 
   const handleContinue = () => {
-    navigate('/pipelines/new/pipeline-type', {
-      state: { ...location.state, pipelineMode: selectedMode },
+    // Skip pipeline-type step, go directly to source-config with default 'edge' type
+    navigate('/pipelines/new/source-config', {
+      state: { ...location.state, pipelineMode: selectedMode, pipelineType: 'edge' },
     });
   };
 

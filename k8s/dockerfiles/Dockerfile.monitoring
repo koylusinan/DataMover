@@ -1,4 +1,5 @@
 # Dockerfile for monitoring service
+# Proactive Monitoring - SINGLE INSTANCE ONLY (stateful)
 FROM node:20-alpine
 
 WORKDIR /app
@@ -12,6 +13,9 @@ RUN npm ci --only=production
 # Copy backend code
 COPY backend/monitoring-service.js ./backend/
 COPY backend/start-monitoring.js ./backend/
+
+# Environment variables
+ENV NODE_ENV=production
 
 # Start monitoring service
 CMD ["node", "backend/start-monitoring.js"]

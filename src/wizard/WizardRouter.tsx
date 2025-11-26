@@ -9,7 +9,6 @@ export function WizardRouter() {
       <Route path="/" element={<Navigate to="source" replace />} />
       <Route path="source" element={<WizardLayout step="source" existingPipelineId={pipelineId} />} />
       <Route path="pipeline-mode" element={<WizardLayout step="pipeline-mode" existingPipelineId={pipelineId} />} />
-      <Route path="pipeline-type" element={<WizardLayout step="pipeline-type" existingPipelineId={pipelineId} />} />
       <Route path="source-config" element={<WizardLayout step="source-config" existingPipelineId={pipelineId} />} />
       <Route path="objects" element={<WizardLayout step="objects" existingPipelineId={pipelineId} />} />
       <Route path="destination-type" element={<WizardLayout step="destination-type" existingPipelineId={pipelineId} />} />

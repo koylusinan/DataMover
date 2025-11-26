@@ -1,0 +1,95 @@
+# =============================================
+# Kafka UI for Kubernetes
+# Created: 2024-11-26
+# =============================================
+# Uygulama:
+#   kubectl apply -f k8s/kafka-ui.yaml
+#   Erişim: http://<NODE_IP>:30080
+# =============================================
+
+# ---------------------------------------------
+# KAFKA UI SERVICE
+# ---------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-ui
+  namespace: kafka-connect
+  labels:
+    app: kafka-ui
+spec:
+  type: NodePort
+  selector:
+    app: kafka-ui
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      nodePort: 30080
+
+---
+# ---------------------------------------------
+# KAFKA UI DEPLOYMENT
+# ---------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-ui
+  namespace: kafka-connect
+  labels:
+    app: kafka-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-ui
+  template:
+    metadata:
+      labels:
+        app: kafka-ui
+    spec:
+      # Sadece bu node'da çalışsın
+      nodeSelector:
+        kubernetes.io/hostname: hp-devops-k8s-as-pw-01
+
+      containers:
+        - name: kafka-ui
+          image: provectuslabs/kafka-ui:latest
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            # Kafka Cluster Config
+            - name: KAFKA_CLUSTERS_0_NAME
+              value: "cdcstream-kafka"
+            - name: KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS
+              value: "10.233.60.70:9092"
+            # Kafka Connect Config
+            - name: KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME
+              value: "debezium-connect"
+            - name: KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS
+              value: "http://10.233.46.180:8083"
+            # UI Settings
+            - name: DYNAMIC_CONFIG_ENABLED
+              value: "true"
+            - name: AUTH_TYPE
+              value: "DISABLED"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 30

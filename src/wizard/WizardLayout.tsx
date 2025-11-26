@@ -4,7 +4,6 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { WizardStepper } from '../components/WizardStepper';
 import { SourceSelection } from '../components/SourceSelection';
 import { PipelineModeStep } from './PipelineModeStep';
-import { PipelineTypeStep } from './PipelineTypeStep';
 import { SourceConfigStep } from './SourceConfigStep';
 import { ObjectsStep } from './ObjectsStep';
 import { DestinationTypeStep } from './DestinationTypeStep';
@@ -13,7 +12,7 @@ import { ScheduleStep } from './ScheduleStep';
 import { supabase } from '../lib/supabase';
 
 interface WizardLayoutProps {
-  step: 'source' | 'pipeline-mode' | 'pipeline-type' | 'source-config' | 'objects' | 'destination-type' | 'destination' | 'schedule';
+  step: 'source' | 'pipeline-mode' | 'source-config' | 'objects' | 'destination-type' | 'destination' | 'schedule';
   existingPipelineId?: string;
 }
 
@@ -48,7 +47,6 @@ export function WizardLayout({ step, existingPipelineId }: WizardLayoutProps) {
   const stepMap = {
     source: 1,
     'pipeline-mode': 1,
-    'pipeline-type': 1,
     'source-config': 1,
     objects: 2,
     'destination-type': 3,
@@ -71,7 +69,7 @@ export function WizardLayout({ step, existingPipelineId }: WizardLayoutProps) {
     navigate('/pipelines/new/pipeline-mode', { state: { sourceType: sourceId } });
   };
 
-  const isFullScreenStep = step === 'source' || step === 'pipeline-mode' || step === 'pipeline-type';
+  const isFullScreenStep = step === 'source' || step === 'pipeline-mode';
   const internallyScrollManagedSteps = new Set(['objects', 'destination-type']);
   const contentContainerClass = internallyScrollManagedSteps.has(step)
     ? 'flex-1 min-h-0 overflow-hidden'
@@ -94,7 +92,6 @@ export function WizardLayout({ step, existingPipelineId }: WizardLayoutProps) {
       <div className={contentContainerClass}>
         {step === 'source' && <SourceSelection onSelectSource={handleSelectSource} onBack={handleClose} />}
         {step === 'pipeline-mode' && state?.sourceType && <PipelineModeStep sourceType={state.sourceType} />}
-        {step === 'pipeline-type' && state?.sourceType && <PipelineTypeStep sourceType={state.sourceType} />}
         {step === 'source-config' && (state?.sourceType || resumeSourceType) && (
           <SourceConfigStep sourceType={state?.sourceType || resumeSourceType || ''} />
         )}
